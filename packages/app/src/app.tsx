@@ -37,6 +37,8 @@ import { LayoutProvider } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
+import { PresenceProvider } from "@/context/presence"
+import { MouseCursors } from "@/components/presence/mouse-cursors"
 import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
@@ -111,7 +113,10 @@ function SessionProviders(props: ParentProps) {
     <TerminalProvider>
       <FileProvider>
         <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
+          <PresenceProvider>
+            <MouseCursors />
+            <CommentsProvider>{props.children}</CommentsProvider>
+          </PresenceProvider>
         </PromptProvider>
       </FileProvider>
     </TerminalProvider>

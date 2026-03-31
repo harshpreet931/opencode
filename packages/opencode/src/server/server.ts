@@ -30,6 +30,7 @@ export namespace Server {
 
   const skipCompress = (path: string, method: string) => {
     if (path === "/event" || path === "/global/event" || path === "/global/sync-event") return true
+    if (path.startsWith("/presence/")) return true
     if (method === "POST" && /\/session\/[^/]+\/(message|prompt_async)$/.test(path)) return true
     return false
   }

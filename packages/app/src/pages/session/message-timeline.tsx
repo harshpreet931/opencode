@@ -28,6 +28,8 @@ import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { usePresence } from "@/context/presence"
+import { ScrollIndicators } from "@/components/presence/scroll-indicators"
 import { messageAgentColor } from "@/utils/agent"
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
@@ -226,6 +228,8 @@ export function MessageTimeline(props: {
   const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
+  const presence = usePresence()
+  let scrollContainerRef: HTMLDivElement | undefined
   const dialog = useDialog()
   const language = useLanguage()
   const { params, sessionKey } = useSessionKey()
@@ -582,7 +586,10 @@ export function MessageTimeline(props: {
           </button>
         </div>
         <ScrollView
-          viewportRef={props.setScrollRef}
+          viewportRef={(el) => {
+            scrollContainerRef = el
+            props.setScrollRef(el)
+          }}
           onWheel={(e) => {
             const root = e.currentTarget
             const delta = normalizeWheelDelta({
@@ -621,6 +628,15 @@ export function MessageTimeline(props: {
           onScroll={(e) => {
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
+            // Broadcast scroll position to presence peers
+            const el = e.currentTarget
+            const maxScroll = el.scrollHeight - el.clientHeight
+            if (maxScroll > 0) {
+              presence.sendCursor({
+                area: "message-timeline",
+                scrollY: Math.max(0, Math.min(1, el.scrollTop / maxScroll)),
+              })
+            }
             if (!props.hasScrollGesture()) return
             props.onUserScroll()
             props.onAutoScrollHandleScroll()
@@ -1011,6 +1027,7 @@ export function MessageTimeline(props: {
             </div>
           </div>
         </ScrollView>
+        <ScrollIndicators scrollerRef={scrollContainerRef} />
       </div>
     </Show>
   )

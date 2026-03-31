@@ -23,6 +23,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { messageAgentColor } from "@/utils/agent"
 import { decode64 } from "@/utils/base64"
 import { Persist, persisted } from "@/utils/persist"
+import { AvatarBar } from "../presence/avatar-bar"
 import { StatusPopover } from "../status-popover"
 
 const OPEN_APPS = [
@@ -414,6 +415,7 @@ export function SessionHeader() {
                   </Show>
                 </div>
               </Show>
+              <AvatarBar />
               <div class="flex items-center gap-1">
                 <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
                   <StatusPopover />

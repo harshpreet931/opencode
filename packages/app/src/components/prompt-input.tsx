@@ -55,6 +55,10 @@ import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { usePresence } from "@/context/presence"
+import { RemoteCursors } from "./presence/remote-cursors"
+import { TypingIndicator } from "./presence/typing-indicator"
+import { PeerInputPreview } from "./presence/peer-input-preview"
 
 interface PromptInputProps {
   class?: string
@@ -114,6 +118,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
   const { params, tabs, view } = useSessionLayout()
+  const presence = usePresence()
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
   let scrollRef!: HTMLDivElement
@@ -898,7 +903,41 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     mirror.input = true
     prompt.set([...rawParts, ...images], cursorPosition)
     queueScroll()
+
+    // ── Presence: broadcast typing and input ──
+    presence.sendTyping(true)
+    if (typingTimeout) clearTimeout(typingTimeout)
+    typingTimeout = setTimeout(() => presence.sendTyping(false), 2000)
+    const plainText = rawParts
+      .filter((p): p is typeof p & { type: "text" } => p.type === "text")
+      .map((p) => p.content)
+      .join("")
+    presence.sendInput(plainText, cursorPosition)
   }
+
+  let typingTimeout: ReturnType<typeof setTimeout> | undefined
+
+  // ── Presence: track cursor area ──
+  createEffect(() => {
+    const handler = () => {
+      const selection = window.getSelection()
+      if (!selection || selection.rangeCount === 0 || !editorRef?.contains(selection.anchorNode)) return
+      const pos = getCursorPosition(editorRef)
+      const sel = (() => {
+        if (selection.isCollapsed) return undefined
+        const range = selection.getRangeAt(0)
+        const preStart = range.cloneRange()
+        preStart.selectNodeContents(editorRef)
+        preStart.setEnd(range.startContainer, range.startOffset)
+        const start = preStart.toString().replace(/\u200B/g, "").length
+        const end = start + range.toString().replace(/\u200B/g, "").length
+        return { start, end }
+      })()
+      presence.sendCursor({ area: "prompt", position: pos, selection: sel })
+    }
+    document.addEventListener("selectionchange", handler)
+    onCleanup(() => document.removeEventListener("selectionchange", handler))
+  })
 
   const addPart = (part: ContentPart) => {
     if (part.type === "image") return false
@@ -1369,6 +1408,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               </div>
             </Show>
           </div>
+          <TypingIndicator />
+          <PeerInputPreview />
+          <RemoteCursors editorRef={editorRef} />
 
           <div
             aria-hidden="true"
