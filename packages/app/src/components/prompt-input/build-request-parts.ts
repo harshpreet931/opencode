@@ -27,6 +27,7 @@ type BuildRequestPartsInput = {
   messageID: string
   sessionID: string
   sessionDirectory: string
+  sendMode?: "agent" | "chat"
 }
 
 const absolute = (directory: string, path: string) => {
@@ -79,11 +80,13 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
 }
 
 export function buildRequestParts(input: BuildRequestPartsInput) {
+  const metadata = input.sendMode === "chat" ? { sendMode: "chat" } : undefined
   const requestParts: PromptRequestPart[] = [
     {
       id: Identifier.ascending("part"),
       type: "text",
       text: input.text,
+      metadata,
     },
   ]
 

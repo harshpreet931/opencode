@@ -34,6 +34,7 @@ export type FollowupDraft = {
   agent: string
   model: { providerID: string; modelID: string }
   variant?: string
+  noReply?: boolean
 }
 
 type FollowupSendInput = {
@@ -112,6 +113,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     sessionID: input.draft.sessionID,
     messageID,
     sessionDirectory: input.draft.sessionDirectory,
+    sendMode: input.draft.noReply ? "chat" : "agent",
   })
 
   const message: Message = {
@@ -139,12 +141,16 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
     })
 
-  setBusy()
+  if (!input.draft.noReply) {
+    setBusy()
+  }
   add()
 
   try {
     if (!(await wait())) {
-      setIdle()
+      if (!input.draft.noReply) {
+        setIdle()
+      }
       remove()
       return false
     }
@@ -156,10 +162,16 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
+      noReply: input.draft.noReply,
     })
+    if (input.draft.noReply) {
+      setIdle()
+    }
     return true
   } catch (err) {
-    setIdle()
+    if (!input.draft.noReply) {
+      setIdle()
+    }
     remove()
     throw err
   }
@@ -171,6 +183,7 @@ type PromptSubmitInput = {
   commentCount: Accessor<number>
   autoAccept: Accessor<boolean>
   mode: Accessor<"normal" | "shell">
+  sendMode: Accessor<"agent" | "chat">
   working: Accessor<boolean>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
@@ -398,6 +411,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       agent,
       model,
       variant,
+      noReply: input.sendMode() === "chat",
     }
 
     const clearInput = () => {
