@@ -423,6 +423,45 @@ describe("applyDirectoryEvent", () => {
     expect(store.part[messageID]).toBeUndefined()
   })
 
+  test("preserves metadata with peer info in message parts", () => {
+    const sessionID = "ses_1"
+    const messageID = "msg_peer"
+    const [store, setStore] = createStore(baseState())
+
+    const partWithMetadata = {
+      id: "prt_peer",
+      sessionID,
+      messageID,
+      type: "text" as const,
+      text: "hello from Alice",
+      metadata: {
+        peer: { id: "peer_1", name: "Alice", color: "#FF6B6B" },
+        sendMode: "chat",
+      },
+    }
+
+    applyDirectoryEvent({
+      event: { type: "message.part.updated", properties: { part: partWithMetadata } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    const stored = store.part[messageID]?.find((x) => x.id === "prt_peer")
+    expect(stored).toBeDefined()
+    expect(stored?.type).toBe("text")
+    if (stored?.type === "text") {
+      expect(stored.metadata?.peer).toEqual({
+        id: "peer_1",
+        name: "Alice",
+        color: "#FF6B6B",
+      })
+      expect(stored.metadata?.sendMode).toBe("chat")
+    }
+  })
+
   test("tracks permission and question request lifecycles", () => {
     const sessionID = "ses_1"
     const [store, setStore] = createStore(

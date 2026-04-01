@@ -197,6 +197,12 @@ beforeAll(async () => {
     }),
   }))
 
+  mock.module("@/context/presence", () => ({
+    usePresence: () => ({
+      localPeer: () => null,
+    }),
+  }))
+
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
 })

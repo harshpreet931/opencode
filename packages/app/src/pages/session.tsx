@@ -39,6 +39,7 @@ import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
+import { usePresence } from "@/context/presence"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
@@ -325,6 +326,7 @@ export default function Page() {
   const prompt = usePrompt()
   const comments = useComments()
   const terminal = useTerminal()
+  const presence = usePresence()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
@@ -1439,6 +1441,7 @@ export default function Page() {
         globalSync,
         draft: item,
         optimisticBusy: item.sessionDirectory === sdk.directory,
+        peer: presence.localPeer() ?? undefined,
       }).catch((err) => {
         setFollowup("failed", input.sessionID, input.id)
         fail(err)

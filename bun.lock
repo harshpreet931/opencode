@@ -299,7 +299,7 @@
       "name": "opencode",
       "version": "1.3.10",
       "bin": {
-        "opencode": "./bin/opencode",
+        "opencode-collab": "./bin/opencode-collab",
       },
       "dependencies": {
         "@actions/core": "1.11.1",

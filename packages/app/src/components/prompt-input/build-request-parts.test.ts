@@ -309,4 +309,99 @@ describe("buildRequestParts", () => {
       expect(filePart.url).toContain("/..")
     }
   })
+
+  test("includes peer info in metadata when peer is provided", () => {
+    const prompt: Prompt = [{ type: "text", content: "hello", start: 0, end: 5 }]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "hello",
+      messageID: "msg_peer",
+      sessionID: "ses_peer",
+      sessionDirectory: "/repo",
+      peer: { id: "peer_1", name: "Alice", color: "#FF6B6B" },
+    })
+
+    const textPart = result.requestParts.find((part) => part.type === "text")
+    expect(textPart).toBeDefined()
+    expect(textPart?.type).toBe("text")
+    if (textPart?.type === "text") {
+      expect(textPart.metadata?.peer).toEqual({
+        id: "peer_1",
+        name: "Alice",
+        color: "#FF6B6B",
+      })
+    }
+  })
+
+  test("includes peer info with chat mode sendMode", () => {
+    const prompt: Prompt = [{ type: "text", content: "chat message", start: 0, end: 12 }]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "chat message",
+      messageID: "msg_chat_peer",
+      sessionID: "ses_chat",
+      sessionDirectory: "/repo",
+      sendMode: "chat",
+      peer: { id: "peer_2", name: "Bob", color: "#4ECDC4" },
+    })
+
+    const textPart = result.requestParts.find((part) => part.type === "text")
+    expect(textPart).toBeDefined()
+    if (textPart?.type === "text") {
+      expect(textPart.metadata?.peer).toEqual({
+        id: "peer_2",
+        name: "Bob",
+        color: "#4ECDC4",
+      })
+      expect(textPart.metadata?.sendMode).toBe("chat")
+    }
+  })
+
+  test("includes sendMode without peer for chat mode", () => {
+    const prompt: Prompt = [{ type: "text", content: "chat message", start: 0, end: 12 }]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "chat message",
+      messageID: "msg_chat_no_peer",
+      sessionID: "ses_chat",
+      sessionDirectory: "/repo",
+      sendMode: "chat",
+    })
+
+    const textPart = result.requestParts.find((part) => part.type === "text")
+    expect(textPart).toBeDefined()
+    if (textPart?.type === "text") {
+      expect(textPart.metadata?.sendMode).toBe("chat")
+      expect(textPart.metadata?.peer).toBeUndefined()
+    }
+  })
+
+  test("no metadata when no peer and no sendMode", () => {
+    const prompt: Prompt = [{ type: "text", content: "agent message", start: 0, end: 13 }]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "agent message",
+      messageID: "msg_agent",
+      sessionID: "ses_agent",
+      sessionDirectory: "/repo",
+    })
+
+    const textPart = result.requestParts.find((part) => part.type === "text")
+    expect(textPart).toBeDefined()
+    if (textPart?.type === "text") {
+      expect(textPart.metadata).toBeUndefined()
+    }
+  })
 })

@@ -19,6 +19,12 @@ type ContextFile = {
   preview?: string
 }
 
+export type PeerInfo = {
+  id: string
+  name: string
+  color: string
+}
+
 type BuildRequestPartsInput = {
   prompt: Prompt
   context: ContextFile[]
@@ -28,6 +34,7 @@ type BuildRequestPartsInput = {
   sessionID: string
   sessionDirectory: string
   sendMode?: "agent" | "chat"
+  peer?: PeerInfo
 }
 
 const absolute = (directory: string, path: string) => {
@@ -80,13 +87,19 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
 }
 
 export function buildRequestParts(input: BuildRequestPartsInput) {
-  const metadata = input.sendMode === "chat" ? { sendMode: "chat" } : undefined
+  const metadata: Record<string, unknown> = {}
+  if (input.peer) {
+    metadata.peer = { id: input.peer.id, name: input.peer.name, color: input.peer.color }
+  }
+  if (input.sendMode === "chat") {
+    metadata.sendMode = "chat"
+  }
   const requestParts: PromptRequestPart[] = [
     {
       id: Identifier.ascending("part"),
       type: "text",
       text: input.text,
-      metadata,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     },
   ]
 

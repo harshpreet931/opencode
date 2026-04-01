@@ -257,13 +257,21 @@ export function MessageTimeline(props: {
     } catch {}
   }
 
+  const messageSender = (messageID: string) => {
+    const parts = sync.data.part[messageID]
+    const textPart = parts?.find((p): p is TextPart => p.type === "text" && !p.synthetic)
+    const metaPeer = textPart?.metadata?.peer as { id: string; name: string; color: string } | undefined
+    if (metaPeer) return { name: metaPeer.name, color: metaPeer.color }
+    const attrPeer = attribution[messageID]
+    if (attrPeer) return { name: attrPeer.name, color: attrPeer.color }
+    return
+  }
+
   const messageIsChatMode = (messageID: string) => {
     const parts = sync.data.part[messageID]
     const textPart = parts?.find((p): p is TextPart => p.type === "text" && !p.synthetic)
     if (!textPart?.metadata?.sendMode) return
-    const peer = attribution[messageID]
-    if (!peer) return
-    return { name: peer.name, color: peer.color }
+    return messageSender(messageID)
   }
 
   createEffect(
@@ -1048,7 +1056,7 @@ export function MessageTimeline(props: {
                           </div>
                         </div>
                       </Show>
-                      <Show when={attribution[messageID]}>
+                      <Show when={messageSender(messageID)}>
                         {(peer) => (
                           <div
                             class="flex justify-end px-4 md:px-5 pt-1.5 pb-0"

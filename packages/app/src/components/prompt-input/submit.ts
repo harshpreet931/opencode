@@ -13,9 +13,10 @@ import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { usePresence } from "@/context/presence"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { buildRequestParts } from "./build-request-parts"
+import { buildRequestParts, type PeerInfo } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
 
@@ -45,6 +46,7 @@ type FollowupSendInput = {
   messageID?: string
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
+  peer?: PeerInfo
 }
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
@@ -114,6 +116,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     messageID,
     sessionDirectory: input.draft.sessionDirectory,
     sendMode: input.draft.noReply ? "chat" : "agent",
+    peer: input.peer,
   })
 
   const message: Message = {
@@ -220,6 +223,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const layout = useLayout()
   const language = useLanguage()
   const params = useParams()
+  const presence = usePresence()
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -571,6 +575,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
+      peer: presence.localPeer() ?? undefined,
     }).catch((err) => {
       pending.delete(session.id)
       if (sessionDirectory === projectDirectory) {
