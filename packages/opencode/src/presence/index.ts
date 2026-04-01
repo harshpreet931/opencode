@@ -7,14 +7,7 @@ const log = Log.create({ service: "presence" })
 export namespace Presence {
   // ── Schemas ──────────────────────────────────────────────
 
-  export const CursorArea = z.enum([
-    "prompt",
-    "message-timeline",
-    "terminal",
-    "file-tree",
-    "review",
-    "idle",
-  ])
+  export const CursorArea = z.enum(["prompt", "message-timeline", "terminal", "file-tree", "review", "idle"])
   export type CursorArea = z.infer<typeof CursorArea>
 
   export const CursorState = z.object({
@@ -152,13 +145,13 @@ export namespace Presence {
 
   // ── Public API ──────────────────────────────────────────
 
-  export function join(sessionID: string, socket: Socket, opts?: { name?: string }): PeerConnection {
+  export function join(sessionID: string, socket: Socket, opts?: { name?: string; color?: string }): PeerConnection {
     const session = getSession(sessionID)
     const id = crypto.randomUUID()
     const peer: PeerInfo = {
       id,
       name: opts?.name || randomName(),
-      color: nextColor(),
+      color: opts?.color || nextColor(),
       connectedAt: Date.now(),
       isTyping: false,
     }
@@ -223,6 +216,7 @@ export namespace Presence {
       input?: InputSnapshot
       isTyping?: boolean
       name?: string
+      color?: string
     },
   ) {
     const session = sessions.get(sessionID)
@@ -243,6 +237,9 @@ export namespace Presence {
     }
     if (update.name) {
       conn.info.name = update.name
+    }
+    if (update.color) {
+      conn.info.color = update.color
     }
   }
 

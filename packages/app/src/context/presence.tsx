@@ -57,7 +57,7 @@ type ServerMessage =
   | { type: "peer.input"; peerID: string; text: string; cursorPosition?: number }
   | { type: "peer.typing"; peerID: string; isTyping: boolean }
   | { type: "peer.mouse"; peerID: string; x: number; y: number }
-  | { type: "peer.name"; peerID: string; name: string }
+  | { type: "peer.name"; peerID: string; name: string; color?: string }
   | { type: "pong" }
 
 // ── Client Messages ───────────────────────────────────────
@@ -74,7 +74,7 @@ type ClientMessage =
   | { type: "input"; text: string; cursorPosition?: number }
   | { type: "typing"; isTyping: boolean }
   | { type: "mouse"; x: number; y: number }
-  | { type: "name"; name: string }
+  | { type: "name"; name: string; color?: string }
   | { type: "ping" }
 
 // ── Constants ─────────────────────────────────────────────
@@ -85,6 +85,7 @@ const PING_INTERVAL_MS = 10_000
 const RECONNECT_DELAY_MS = 1_000
 const MAX_RECONNECT_DELAY_MS = 30_000
 const PRESENCE_NAME_KEY = "opencode.presence.name"
+const PRESENCE_COLOR_KEY = "opencode.presence.color"
 
 // ── Context ───────────────────────────────────────────────
 
@@ -106,10 +107,13 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     let reconnectDelay = RECONNECT_DELAY_MS
     let lastCursorSend = 0
     let lastInputSend = 0
+    let lastMouseSend = 0
     let pendingCursor: ClientMessage | null = null
     let pendingInput: ClientMessage | null = null
+    let pendingMouse: ClientMessage | null = null
     let cursorTimer: ReturnType<typeof setTimeout> | undefined
     let inputTimer: ReturnType<typeof setTimeout> | undefined
+    let mouseTimer: ReturnType<typeof setTimeout> | undefined
 
     // ── WebSocket URL ──
 
@@ -126,6 +130,14 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       const directory = decode64(params.dir)
       if (directory) {
         base.searchParams.set("directory", directory)
+      }
+      const savedName = localStorage.getItem(PRESENCE_NAME_KEY)
+      if (savedName) {
+        base.searchParams.set("name", savedName)
+      }
+      const savedColor = localStorage.getItem(PRESENCE_COLOR_KEY)
+      if (savedColor) {
+        base.searchParams.set("color", savedColor)
       }
       return base.toString()
     }
@@ -197,8 +209,12 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       cursorTimer = undefined
       if (inputTimer) clearTimeout(inputTimer)
       inputTimer = undefined
+      if (mouseTimer) clearTimeout(mouseTimer)
+      mouseTimer = undefined
       if (ws) {
         ws.onclose = null
+        ws.onmessage = null
+        ws.onerror = null
         ws.close()
       }
       cleanup()
@@ -220,11 +236,16 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     function handleMessage(msg: ServerMessage) {
       switch (msg.type) {
         case "welcome": {
-          // If user has a saved name, send it immediately
           const savedName = localStorage.getItem(PRESENCE_NAME_KEY)
+          const savedColor = localStorage.getItem(PRESENCE_COLOR_KEY)
           if (savedName && savedName !== msg.peer.name) {
             msg.peer = { ...msg.peer, name: savedName }
-            sendMessage({ type: "name", name: savedName })
+          }
+          if (savedColor && savedColor !== msg.peer.color) {
+            msg.peer = { ...msg.peer, color: savedColor }
+          }
+          if ((savedName && savedName !== msg.peer.name) || (savedColor && savedColor !== msg.peer.color)) {
+            sendMessage({ type: "name", name: savedName ?? msg.peer.name, color: savedColor ?? undefined })
           }
           setLocalPeer(msg.peer)
           batch(() => {
@@ -268,10 +289,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
             const snap = store.peers[msg.peerID]
             if (snap) {
               const now = Date.now()
-              setRecentStops((prev) => [
-                { peer: { ...snap }, time: now },
-                ...prev.filter((s) => now - s.time < 30_000),
-              ])
+              setRecentStops((prev) => [{ peer: { ...snap }, time: now }, ...prev.filter((s) => now - s.time < 30_000)])
             }
           }
           break
@@ -285,7 +303,11 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
           break
         }
         case "peer.name": {
-          setStore("peers", msg.peerID, "name", msg.name)
+          setStore("peers", msg.peerID, (peer) => ({
+            ...peer,
+            ...(msg.name !== undefined && { name: msg.name }),
+            ...(msg.color !== undefined && { color: msg.color }),
+          }))
           break
         }
         case "pong": {
@@ -365,12 +387,23 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       sendMessage({ type: "typing", isTyping })
     }
 
-    function setName(name: string) {
+    function setName(name: string, color?: string) {
       const trimmed = name.trim()
       if (!trimmed) return
       localStorage.setItem(PRESENCE_NAME_KEY, trimmed)
-      sendMessage({ type: "name", name: trimmed })
-      setLocalPeer((prev) => (prev ? { ...prev, name: trimmed } : null))
+      if (color) localStorage.setItem(PRESENCE_COLOR_KEY, color)
+      sendMessage({ type: "name", name: trimmed, color })
+      setLocalPeer((prev) => (prev ? { ...prev, name: trimmed, ...(color && { color }) } : null))
+    }
+
+    function setColor(color: string) {
+      if (!color) return
+      localStorage.setItem(PRESENCE_COLOR_KEY, color)
+      const currentName = localPeer()?.name
+      if (currentName) {
+        sendMessage({ type: "name", name: currentName, color })
+      }
+      setLocalPeer((prev) => (prev ? { ...prev, color } : null))
     }
 
     const hasName = () => !!localStorage.getItem(PRESENCE_NAME_KEY)
@@ -378,9 +411,6 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     // ── Mouse tracking ──
 
     const MOUSE_THROTTLE_MS = 50
-    let lastMouseSend = 0
-    let pendingMouse: ClientMessage | null = null
-    let mouseTimer: ReturnType<typeof setTimeout> | undefined
 
     function sendMouse(x: number, y: number) {
       const msg: ClientMessage = { type: "mouse", x, y }
@@ -457,6 +487,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       sendTyping,
       sendMouse,
       setName,
+      setColor,
       hasName,
     }
   },

@@ -37,6 +37,7 @@ const ClientMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("name"),
     name: z.string().min(1).max(30),
+    color: z.string().optional(),
   }),
   z.object({
     type: z.literal("ping"),
@@ -51,7 +52,7 @@ type ServerMessage =
   | { type: "peer.input"; peerID: string; text: string; cursorPosition?: number }
   | { type: "peer.typing"; peerID: string; isTyping: boolean }
   | { type: "peer.mouse"; peerID: string; x: number; y: number }
-  | { type: "peer.name"; peerID: string; name: string }
+  | { type: "peer.name"; peerID: string; name: string; color?: string }
   | { type: "pong" }
 
 function sendJSON(
@@ -90,6 +91,7 @@ export const PresenceRoutes = lazy(() =>
     upgradeWebSocket(async (c) => {
       const sessionID = c.req.param("sessionID")
       const name = c.req.query("name") || undefined
+      const color = c.req.query("color") || undefined
 
       type Socket = {
         readyState: number
@@ -116,7 +118,7 @@ export const PresenceRoutes = lazy(() =>
             return
           }
 
-          conn = Presence.join(sessionID, socket, { name })
+          conn = Presence.join(sessionID, socket, { name, color })
           peerID = conn.info.id
 
           // Send welcome with current peer list
@@ -220,7 +222,9 @@ export const PresenceRoutes = lazy(() =>
             }
 
             case "name": {
-              Presence.updatePeer(sessionID, peerID, { name: msg.name })
+              const update: { name: string; color?: string } = { name: msg.name }
+              if (msg.color) update.color = msg.color
+              Presence.updatePeer(sessionID, peerID, update)
               Presence.broadcast(
                 sessionID,
                 peerID,
@@ -228,6 +232,7 @@ export const PresenceRoutes = lazy(() =>
                   type: "peer.name",
                   peerID,
                   name: msg.name,
+                  color: msg.color,
                 } satisfies ServerMessage),
               )
               break
