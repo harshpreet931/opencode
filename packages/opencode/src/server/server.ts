@@ -37,7 +37,7 @@ export namespace Server {
 
   export const Default = lazy(() => ControlPlaneRoutes())
 
-  export const ControlPlaneRoutes = (opts?: { cors?: string[] }): Hono => {
+  export const ControlPlaneRoutes = (opts?: { cors?: string[]; hostname?: string }): Hono => {
     const app = new Hono()
     return app
       .onError(errorHandler(log))
@@ -81,6 +81,14 @@ export namespace Server {
               input === "https://tauri.localhost"
             )
               return input
+
+            // when bound to all interfaces, allow any IP-based origin (network access)
+            if (
+              opts?.hostname === "0.0.0.0" &&
+              /^https?:\/\/\d+\.\d+\.\d+\.\d+(:\d+)?$/.test(input)
+            ) {
+              return input
+            }
 
             // *.opencode.ai (https only, adjust if needed)
             if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
@@ -273,7 +281,7 @@ export namespace Server {
     cors?: string[]
   }) {
     url = new URL(`http://${opts.hostname}:${opts.port}`)
-    const app = ControlPlaneRoutes({ cors: opts.cors })
+    const app = ControlPlaneRoutes({ cors: opts.cors, hostname: opts.hostname })
     const args = {
       hostname: opts.hostname,
       idleTimeout: 0,
