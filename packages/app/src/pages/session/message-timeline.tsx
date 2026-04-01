@@ -241,7 +241,11 @@ export function MessageTimeline(props: {
   // ── Attribution: show who sent each message (WhatsApp-style) ──
   const ATTR_KEY = `opencode.attribution.${params.id ?? "default"}`
   const saved = (() => {
-    try { return JSON.parse(localStorage.getItem(ATTR_KEY) ?? "{}") } catch { return {} }
+    try {
+      return JSON.parse(localStorage.getItem(ATTR_KEY) ?? "{}")
+    } catch {
+      return {}
+    }
   })()
   const [attribution, setAttribution] = createStore<Record<string, PeerState>>(saved)
 
@@ -251,6 +255,15 @@ export function MessageTimeline(props: {
       const current = JSON.parse(localStorage.getItem(ATTR_KEY) ?? "{}")
       localStorage.setItem(ATTR_KEY, JSON.stringify({ ...current, [id]: peer }))
     } catch {}
+  }
+
+  const messageIsChatMode = (messageID: string) => {
+    const parts = sync.data.part[messageID]
+    const textPart = parts?.find((p): p is TextPart => p.type === "text" && !p.synthetic)
+    if (!textPart?.metadata?.sendMode) return
+    const peer = attribution[messageID]
+    if (!peer) return
+    return { name: peer.name, color: peer.color }
   }
 
   createEffect(
@@ -1041,11 +1054,21 @@ export function MessageTimeline(props: {
                             class="flex justify-end px-4 md:px-5 pt-1.5 pb-0"
                             style={{ animation: "presence-in 0.2s ease-out" }}
                           >
-                            <span
-                              class="text-[11px] font-semibold"
-                              style={{ color: peer().color }}
-                            >
+                            <span class="text-[11px] font-semibold" style={{ color: peer().color }}>
                               {peer().name}
+                            </span>
+                          </div>
+                        )}
+                      </Show>
+                      <Show when={messageIsChatMode(messageID)}>
+                        {(peer) => (
+                          <div
+                            class="flex justify-end px-4 md:px-5 pt-1.5 pb-0"
+                            style={{ animation: "presence-in 0.2s ease-out" }}
+                          >
+                            <span class="text-[11px] font-medium text-text-weak">
+                              {peer().name}
+                              <span class="text-text-muted"> via chat</span>
                             </span>
                           </div>
                         )}

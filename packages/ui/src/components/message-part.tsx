@@ -931,6 +931,8 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
     () => props.parts?.find((p) => p.type === "text" && !(p as TextPart).synthetic) as TextPart | undefined,
   )
 
+  const sendMode = createMemo(() => textPart()?.metadata?.sendMode)
+
   const text = createMemo(() => textPart()?.text || "")
 
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
@@ -963,6 +965,8 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   })
 
   const metaTail = stamp
+
+  const isChatMode = createMemo(() => sendMode() === "chat")
 
   const openImagePreview = (url: string, alt?: string) => {
     dialog.show(() => <ImagePreview src={url} alt={alt} />)

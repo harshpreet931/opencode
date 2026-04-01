@@ -25,6 +25,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Select } from "@opencode-ai/ui/select"
+import { RadioGroup } from "@opencode-ai/ui/radio-group"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { useProviders } from "@/hooks/use-providers"
@@ -275,6 +276,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     draggingType: "image" | "@mention" | null
     mode: "normal" | "shell"
     applyingHistory: boolean
+    sendMode: "agent" | "chat"
   }>({
     popover: null,
     historyIndex: -1,
@@ -283,6 +285,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     draggingType: null,
     mode: "normal",
     applyingHistory: false,
+    sendMode: "agent",
   })
 
   const buttonsSpring = useSpring(() => (store.mode === "normal" ? 1 : 0), { visualDuration: 0.2, bounce: 0 })
@@ -1117,6 +1120,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     commentCount,
     autoAccept: () => accepting(),
     mode: () => store.mode,
+    sendMode: () => store.sendMode,
     working,
     editor: () => editorRef,
     queueScroll,
@@ -1408,7 +1412,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             </Show>
           </div>
 
-
           <div
             aria-hidden="true"
             class="pointer-events-none absolute inset-x-0 bottom-0"
@@ -1434,6 +1437,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
+              <RadioGroup
+                options={["agent", "chat"] as const}
+                current={store.sendMode}
+                onSelect={(v) => v && setStore("sendMode", v)}
+                size="small"
+                pad="none"
+                class="mr-1"
+                style={buttons()}
+                label={(v) => <span class="px-2 text-11-medium capitalize">{v}</span>}
+              />
               <Tooltip placement="top" inactive={!prompt.dirty() && !working()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
