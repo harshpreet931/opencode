@@ -42,6 +42,11 @@ export interface PeerState extends PeerInfo {
   mouse?: PeerMouse
 }
 
+export interface RecentStop {
+  peer: PeerState
+  time: number
+}
+
 // ── Server Messages ───────────────────────────────────────
 
 type ServerMessage =
@@ -93,6 +98,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     const [localPeer, setLocalPeer] = createSignal<PeerInfo | null>(null)
     const [store, setStore] = createStore<{ peers: Record<string, PeerState> }>({ peers: {} })
     const [connected, setConnected] = createSignal(false)
+    const [recentStops, setRecentStops] = createSignal<RecentStop[]>([])
 
     let ws: WebSocket | null = null
     let pingTimer: ReturnType<typeof setInterval> | undefined
@@ -254,7 +260,20 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
           break
         }
         case "peer.typing": {
+          const wasTyping = store.peers[msg.peerID]?.isTyping
           setStore("peers", msg.peerID, "isTyping", msg.isTyping)
+          if (!wasTyping && msg.isTyping) {
+            // Snapshot peer at the moment they START typing so attribution
+            // is available even before they stop (race-free)
+            const snap = store.peers[msg.peerID]
+            if (snap) {
+              const now = Date.now()
+              setRecentStops((prev) => [
+                { peer: { ...snap }, time: now },
+                ...prev.filter((s) => now - s.time < 30_000),
+              ])
+            }
+          }
           break
         }
         case "peer.mouse": {
@@ -431,6 +450,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       peers,
       peerCount,
       connected,
+      recentStops,
       peer: (id: string) => store.peers[id] as PeerState | undefined,
       sendCursor,
       sendInput,

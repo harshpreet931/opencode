@@ -29,6 +29,7 @@ import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { usePresence } from "@/context/presence"
+import type { PeerState } from "@/context/presence"
 import { ScrollIndicators } from "@/components/presence/scroll-indicators"
 import { messageAgentColor } from "@/utils/agent"
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
@@ -236,6 +237,36 @@ export function MessageTimeline(props: {
   const platform = usePlatform()
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
+
+  // ── Attribution: show who sent each message (WhatsApp-style) ──
+  const ATTR_KEY = `opencode.attribution.${params.id ?? "default"}`
+  const saved = (() => {
+    try { return JSON.parse(localStorage.getItem(ATTR_KEY) ?? "{}") } catch { return {} }
+  })()
+  const [attribution, setAttribution] = createStore<Record<string, PeerState>>(saved)
+
+  const writeAttr = (id: string, peer: PeerState) => {
+    setAttribution(id, peer)
+    try {
+      const current = JSON.parse(localStorage.getItem(ATTR_KEY) ?? "{}")
+      localStorage.setItem(ATTR_KEY, JSON.stringify({ ...current, [id]: peer }))
+    } catch {}
+  }
+
+  createEffect(
+    on(
+      rendered,
+      (curr, prev) => {
+        const newIDs = curr.filter((id) => !(prev ?? []).includes(id))
+        if (newIDs.length === 0) return
+        const now = Date.now()
+        const typer = presence.recentStops().find((s) => now - s.time < 30_000)
+        if (!typer) return
+        writeAttr(newIDs[newIDs.length - 1], { ...typer.peer })
+      },
+      { defer: true },
+    ),
+  )
   const sessionID = createMemo(() => params.id)
   const sessionMessages = createMemo(() => {
     const id = sessionID()
@@ -1003,6 +1034,21 @@ export function MessageTimeline(props: {
                             </div>
                           </div>
                         </div>
+                      </Show>
+                      <Show when={attribution[messageID]}>
+                        {(peer) => (
+                          <div
+                            class="flex justify-end px-4 md:px-5 pt-1.5 pb-0"
+                            style={{ animation: "presence-in 0.2s ease-out" }}
+                          >
+                            <span
+                              class="text-[11px] font-semibold"
+                              style={{ color: peer().color }}
+                            >
+                              {peer().name}
+                            </span>
+                          </div>
+                        )}
                       </Show>
                       <SessionTurn
                         sessionID={sessionID() ?? ""}

@@ -56,8 +56,6 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { usePresence } from "@/context/presence"
-import { RemoteCursors } from "./presence/remote-cursors"
-import { TypingIndicator } from "./presence/typing-indicator"
 import { PeerInputPreview } from "./presence/peer-input-preview"
 
 interface PromptInputProps {
@@ -1350,6 +1348,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           onRemove={removeAttachment}
           removeLabel={language.t("prompt.attachment.remove")}
         />
+        <PeerInputPreview />
         <div
           class="relative"
           onMouseDown={(e) => {
@@ -1408,9 +1407,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               </div>
             </Show>
           </div>
-          <TypingIndicator />
-          <PeerInputPreview />
-          <RemoteCursors editorRef={editorRef} />
+
 
           <div
             aria-hidden="true"
