@@ -286,9 +286,12 @@ export function MessageTimeline(props: {
           writeAttr(newIDs[newIDs.length - 1], { ...typer.peer })
           return
         }
-        const local = presence.localPeer()
-        if (local) {
-          writeAttr(newIDs[newIDs.length - 1], { ...local })
+        // Fallback to local peer only for single new messages (not bulk history loads)
+        if (newIDs.length === 1) {
+          const local = presence.localPeer()
+          if (local) {
+            writeAttr(newIDs[0], { ...local })
+          }
         }
       },
       { defer: true },
