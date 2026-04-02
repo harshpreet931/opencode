@@ -575,7 +575,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
-      peer: presence.localPeer() ?? undefined,
+      peer: presence.localPeerFallback() ?? undefined,
     }).catch((err) => {
       pending.delete(session.id)
       if (sessionDirectory === projectDirectory) {

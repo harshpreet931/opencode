@@ -1441,7 +1441,7 @@ export default function Page() {
         globalSync,
         draft: item,
         optimisticBusy: item.sessionDirectory === sdk.directory,
-        peer: presence.localPeer() ?? undefined,
+        peer: presence.localPeerFallback() ?? undefined,
       }).catch((err) => {
         setFollowup("failed", input.sessionID, input.id)
         fail(err)

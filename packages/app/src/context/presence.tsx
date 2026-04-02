@@ -519,8 +519,20 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     })
     const peerCount = createMemo(() => Object.keys(store.peers).length)
 
+    const localPeerFallback = () => {
+      const p = localPeer()
+      if (p) return p
+      const name = localStorage.getItem(PRESENCE_NAME_KEY)
+      const color = localStorage.getItem(PRESENCE_COLOR_KEY)
+      if (name && color) {
+        return { id: "local", name, color, connectedAt: 0, isTyping: false }
+      }
+      return null
+    }
+
     return {
       localPeer,
+      localPeerFallback,
       peers,
       peerCount,
       connected,
