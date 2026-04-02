@@ -282,8 +282,14 @@ export function MessageTimeline(props: {
         if (newIDs.length === 0) return
         const now = Date.now()
         const typer = presence.recentStops().find((s) => now - s.time < 30_000)
-        if (!typer) return
-        writeAttr(newIDs[newIDs.length - 1], { ...typer.peer })
+        if (typer) {
+          writeAttr(newIDs[newIDs.length - 1], { ...typer.peer })
+          return
+        }
+        const local = presence.localPeer()
+        if (local) {
+          writeAttr(newIDs[newIDs.length - 1], { ...local })
+        }
       },
       { defer: true },
     ),
