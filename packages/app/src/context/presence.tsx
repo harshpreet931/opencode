@@ -1,7 +1,7 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useParams } from "@solidjs/router"
 import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
-import { createStore, produce } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useServer } from "./server"
 import { decode64 } from "@/utils/base64"
 
@@ -163,7 +163,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       }
 
       ws.onopen = () => {
-        console.log("[presence] connected")
+        console.log("[presence] ws.onopen fired, setting connected=true")
         setConnected(true)
         reconnectDelay = RECONNECT_DELAY_MS
         pingTimer = setInterval(() => {
@@ -196,6 +196,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     }
 
     function cleanup() {
+      console.log("[presence] cleanup called, setting connected=false")
       setConnected(false)
       if (pingTimer) clearInterval(pingTimer)
       pingTimer = undefined
@@ -203,6 +204,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     }
 
     function disconnect() {
+      console.log("[presence] disconnect called, ws exists:", !!ws, "ws readyState:", ws?.readyState)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       reconnectTimer = undefined
       if (cursorTimer) clearTimeout(cursorTimer)
@@ -212,6 +214,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       if (mouseTimer) clearTimeout(mouseTimer)
       mouseTimer = undefined
       if (ws) {
+        console.log("[presence] clearing ws handlers and closing")
         ws.onclose = null
         ws.onmessage = null
         ws.onerror = null
@@ -219,7 +222,9 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       }
       cleanup()
       setLocalPeer(null)
-      setStore("peers", {})
+      setRecentStops([])
+      setStore("peers", reconcile({}))
+      console.log("[presence] disconnect done, peers cleared")
     }
 
     function scheduleReconnect() {
@@ -234,26 +239,43 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     // ── Message Handling ──
 
     function handleMessage(msg: ServerMessage) {
+      const currentSessionID = params.id
+      console.log("[presence] handleMessage", { type: msg.type, currentSessionID })
+
       switch (msg.type) {
         case "welcome": {
           const savedName = localStorage.getItem(PRESENCE_NAME_KEY)
           const savedColor = localStorage.getItem(PRESENCE_COLOR_KEY)
-          if (savedName && savedName !== msg.peer.name) {
-            msg.peer = { ...msg.peer, name: savedName }
+
+          const finalName = savedName || msg.peer.name
+          const finalColor = savedColor || msg.peer.color
+
+          if (!savedName) localStorage.setItem(PRESENCE_NAME_KEY, msg.peer.name)
+          if (!savedColor) localStorage.setItem(PRESENCE_COLOR_KEY, msg.peer.color)
+
+          const nameDiffers = savedName && savedName !== msg.peer.name
+          const colorDiffers = savedColor && savedColor !== msg.peer.color
+          if (nameDiffers || colorDiffers) {
+            sendMessage({ type: "name", name: finalName, color: finalColor })
           }
-          if (savedColor && savedColor !== msg.peer.color) {
-            msg.peer = { ...msg.peer, color: savedColor }
-          }
-          if ((savedName && savedName !== msg.peer.name) || (savedColor && savedColor !== msg.peer.color)) {
-            sendMessage({ type: "name", name: savedName ?? msg.peer.name, color: savedColor ?? undefined })
-          }
-          setLocalPeer(msg.peer)
+
+          console.log("[presence] welcome received", {
+            sessionID: currentSessionID,
+            myPeerID: msg.peer.id,
+            peersCount: msg.peers.length,
+            peerNames: msg.peers.map((p) => p.name),
+          })
+
+          setLocalPeer({ ...msg.peer, name: finalName, color: finalColor })
           batch(() => {
             const peers: Record<string, PeerState> = {}
             for (const p of msg.peers) {
-              peers[p.id] = { ...p, input: undefined }
+              if (p.id !== msg.peer.id) {
+                peers[p.id] = { ...p, input: undefined }
+              }
             }
-            setStore("peers", peers)
+            console.log("[presence] setting peers", { count: Object.keys(peers).length, keys: Object.keys(peers) })
+            setStore("peers", reconcile(peers))
           })
           break
         }
@@ -456,15 +478,33 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
 
     // ── Lifecycle ──
 
-    const sessionID = createMemo(() => params.id)
+    createEffect(() => {
+      console.log("[presence] params.id changed:", params.id)
+    })
+
+    const sessionID = createMemo(() => {
+      const id = params.id
+      console.log("[presence] sessionID memo evaluated:", id)
+      return id
+    })
 
     console.log("[presence] init, params.id =", params.id, "server.current =", !!server.current)
 
     createEffect(
       on(sessionID, (id, prev) => {
-        console.log("[presence] sessionID changed:", { id, prev })
-        if (prev) disconnect()
-        if (id) connect()
+        console.log("[presence] sessionID effect fired:", { id, prev, timestamp: Date.now() })
+        if (prev) {
+          console.log("[presence] cleaning up previous session:", prev)
+          setStore("peers", reconcile({}))
+          setLocalPeer(null)
+          console.log("[presence] cleared peers and localPeer, calling disconnect")
+          disconnect()
+          console.log("[presence] disconnect completed")
+        }
+        if (id) {
+          console.log("[presence] connecting to session:", id)
+          connect()
+        }
       }),
     )
 
@@ -472,7 +512,11 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
 
     // ── Public API ──
 
-    const peers = createMemo(() => Object.values(store.peers))
+    const peers = createMemo(() => {
+      const result = Object.values(store.peers)
+      console.log("[presence] peers memo evaluated:", { count: result.length, names: result.map((p) => p.name) })
+      return result
+    })
     const peerCount = createMemo(() => Object.keys(store.peers).length)
 
     return {

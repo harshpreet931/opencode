@@ -1059,25 +1059,15 @@ export function MessageTimeline(props: {
                       <Show when={messageSender(messageID)}>
                         {(peer) => (
                           <div
-                            class="flex justify-end px-4 md:px-5 pt-1.5 pb-0"
+                            class="flex items-center justify-end gap-1 px-4 md:px-5 pt-1.5 pb-0"
                             style={{ animation: "presence-in 0.2s ease-out" }}
                           >
                             <span class="text-[11px] font-semibold" style={{ color: peer().color }}>
                               {peer().name}
                             </span>
-                          </div>
-                        )}
-                      </Show>
-                      <Show when={messageIsChatMode(messageID)}>
-                        {(peer) => (
-                          <div
-                            class="flex justify-end px-4 md:px-5 pt-1.5 pb-0"
-                            style={{ animation: "presence-in 0.2s ease-out" }}
-                          >
-                            <span class="text-[11px] font-medium text-text-weak">
-                              {peer().name}
-                              <span class="text-text-muted"> via chat</span>
-                            </span>
+                            <Show when={messageIsChatMode(messageID)}>
+                              <span class="text-[11px] font-medium text-text-muted">via chat</span>
+                            </Show>
                           </div>
                         )}
                       </Show>
