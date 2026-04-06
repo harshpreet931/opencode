@@ -1,0 +1,1710 @@
+diff --git a/packages/app/src/app.tsx b/packages/app/src/app.tsx
+index c0715cc94..c5d586f20 100644
+--- a/packages/app/src/app.tsx
++++ b/packages/app/src/app.tsx
+@@ -37,6 +37,8 @@ import { LayoutProvider } from "@/context/layout"
+ import { ModelsProvider } from "@/context/models"
+ import { NotificationProvider } from "@/context/notification"
+ import { PermissionProvider } from "@/context/permission"
++import { PresenceProvider } from "@/context/presence"
++import { MouseCursors } from "@/components/presence/mouse-cursors"
+ import { PromptProvider } from "@/context/prompt"
+ import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
+ import { SettingsProvider } from "@/context/settings"
+@@ -111,7 +113,10 @@ function SessionProviders(props: ParentProps) {
+     <TerminalProvider>
+       <FileProvider>
+         <PromptProvider>
+-          <CommentsProvider>{props.children}</CommentsProvider>
++          <PresenceProvider>
++            <MouseCursors />
++            <CommentsProvider>{props.children}</CommentsProvider>
++          </PresenceProvider>
+         </PromptProvider>
+       </FileProvider>
+     </TerminalProvider>
+diff --git a/packages/app/src/components/presence/avatar-bar.tsx b/packages/app/src/components/presence/avatar-bar.tsx
+new file mode 100644
+index 000000000..826413d9c
+--- /dev/null
++++ b/packages/app/src/components/presence/avatar-bar.tsx
+@@ -0,0 +1,68 @@
++import { createEffect, createSignal, For, on, Show } from "solid-js"
++import { usePresence } from "@/context/presence"
++import { PresenceNameDialog } from "./name-dialog"
++
++function initials(name: string) {
++  const parts = name.split(" ")
++  return parts
++    .map((p) => p[0])
++    .join("")
++    .slice(0, 2)
++    .toUpperCase()
++}
++
++export function AvatarBar() {
++  const presence = usePresence()
++  const [showNameDialog, setShowNameDialog] = createSignal(false)
++
++  // Show name dialog on first connection if no saved name
++  createEffect(
++    on(
++      () => presence.connected(),
++      (connected) => {
++        if (connected && !presence.hasName()) {
++          setShowNameDialog(true)
++        }
++      },
++    ),
++  )
++
++  return (
++    <Show when={presence.connected()}>
++      <div class="flex items-center gap-1 px-2">
++        {/* Local peer avatar - clickable to change name */}
++        <Show when={presence.localPeer()}>
++          {(peer) => (
++            <div
++              class="size-6 rounded-full flex items-center justify-center text-[10px] font-medium ring-2 ring-background-base shrink-0 cursor-pointer hover:ring-blue-400 transition-all"
++              style={{ "background-color": peer().color, color: "#fff" }}
++              title={`${peer().name} (you) — click to change name`}
++              onClick={() => setShowNameDialog(true)}
++            >
++              {initials(peer().name)}
++            </div>
++          )}
++        </Show>
++        {/* Remote peer avatars */}
++        <For each={presence.peers()}>
++          {(peer) => (
++            <div
++              class="size-6 rounded-full flex items-center justify-center text-[10px] font-medium ring-2 ring-background-base shrink-0 transition-all duration-200"
++              classList={{ "animate-pulse": peer.isTyping }}
++              style={{ "background-color": peer.color, color: "#fff" }}
++              title={peer.name}
++            >
++              {initials(peer.name)}
++            </div>
++          )}
++        </For>
++        <Show when={presence.peerCount() > 0}>
++          <span class="text-11-regular text-text-weak ml-1">
++            {presence.peerCount()} {presence.peerCount() === 1 ? "viewer" : "viewers"}
++          </span>
++        </Show>
++      </div>
++      <PresenceNameDialog open={showNameDialog()} onClose={() => setShowNameDialog(false)} />
++    </Show>
++  )
++}
+diff --git a/packages/app/src/components/presence/index.ts b/packages/app/src/components/presence/index.ts
+new file mode 100644
+index 000000000..e8534574d
+--- /dev/null
++++ b/packages/app/src/components/presence/index.ts
+@@ -0,0 +1,6 @@
++export { AvatarBar } from "./avatar-bar"
++export { MouseCursors } from "./mouse-cursors"
++export { RemoteCursors } from "./remote-cursors"
++export { ScrollIndicators } from "./scroll-indicators"
++export { TypingIndicator } from "./typing-indicator"
++export { PeerInputPreview } from "./peer-input-preview"
+diff --git a/packages/app/src/components/presence/mouse-cursors.tsx b/packages/app/src/components/presence/mouse-cursors.tsx
+new file mode 100644
+index 000000000..77d46ff01
+--- /dev/null
++++ b/packages/app/src/components/presence/mouse-cursors.tsx
+@@ -0,0 +1,62 @@
++import { For, Show, createMemo } from "solid-js"
++import { Portal } from "solid-js/web"
++import { usePresence } from "@/context/presence"
++
++const STALE_MS = 3000
++
++export function MouseCursors() {
++  const presence = usePresence()
++
++  const activePeers = createMemo(() => {
++    const now = Date.now()
++    return presence.peers().filter((p) => p.mouse && now - p.mouse.lastUpdate < STALE_MS)
++  })
++
++  return (
++    <Portal>
++      <div class="fixed inset-0 pointer-events-none" style={{ "z-index": "9999" }}>
++        <For each={activePeers()}>
++          {(peer) => (
++            <Show when={peer.mouse}>
++              {(mouse) => (
++                <div
++                  class="absolute transition-all duration-75 ease-out"
++                  style={{
++                    left: `${mouse().x * 100}%`,
++                    top: `${mouse().y * 100}%`,
++                  }}
++                >
++                  {/* Cursor SVG */}
++                  <svg
++                    width="16"
++                    height="20"
++                    viewBox="0 0 16 20"
++                    fill="none"
++                    style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))" }}
++                  >
++                    <path
++                      d="M0.5 0.5L15 11.5H7L3.5 19.5L0.5 0.5Z"
++                      fill={peer.color}
++                      stroke="white"
++                      stroke-width="1"
++                    />
++                  </svg>
++                  {/* Name label */}
++                  <div
++                    class="absolute left-4 top-4 px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap shadow-sm"
++                    style={{
++                      "background-color": peer.color,
++                      color: "#fff",
++                    }}
++                  >
++                    {peer.name}
++                  </div>
++                </div>
++              )}
++            </Show>
++          )}
++        </For>
++      </div>
++    </Portal>
++  )
++}
+diff --git a/packages/app/src/components/presence/name-dialog.tsx b/packages/app/src/components/presence/name-dialog.tsx
+new file mode 100644
+index 000000000..4606bcbd0
+--- /dev/null
++++ b/packages/app/src/components/presence/name-dialog.tsx
+@@ -0,0 +1,73 @@
++import { createSignal, Show } from "solid-js"
++import { usePresence } from "@/context/presence"
++
++export function PresenceNameDialog(props: { open: boolean; onClose: () => void }) {
++  const presence = usePresence()
++  const [value, setValue] = createSignal(presence.localPeer()?.name ?? "")
++
++  const save = () => {
++    const name = value().trim()
++    if (name) {
++      presence.setName(name)
++      props.onClose()
++    }
++  }
++
++  const handleKeyDown = (e: KeyboardEvent) => {
++    if (e.key === "Enter") {
++      e.preventDefault()
++      save()
++    }
++    if (e.key === "Escape") {
++      props.onClose()
++    }
++  }
++
++  return (
++    <Show when={props.open}>
++      <div class="fixed inset-0 z-[10000] flex items-center justify-center" onClick={() => props.onClose()}>
++        {/* Backdrop */}
++        <div class="absolute inset-0 bg-black/40" />
++        {/* Dialog */}
++        <div
++          class="relative bg-surface-base border border-border-base rounded-lg shadow-lg p-5 w-[340px] flex flex-col gap-4"
++          onClick={(e) => e.stopPropagation()}
++        >
++          <div class="flex flex-col gap-1">
++            <h3 class="text-14-regular font-semibold text-text-strong">Set your display name</h3>
++            <p class="text-12-regular text-text-weak">
++              This name will be visible to others in the session.
++            </p>
++          </div>
++          <input
++            type="text"
++            value={value()}
++            onInput={(e) => setValue(e.currentTarget.value)}
++            onKeyDown={handleKeyDown}
++            placeholder="Enter your name..."
++            maxLength={30}
++            autofocus
++            class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-panel text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-1 focus:ring-border-strong"
++          />
++          <div class="flex items-center justify-end gap-2">
++            <button
++              type="button"
++              onClick={() => props.onClose()}
++              class="px-3 py-1.5 rounded-md text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
++            >
++              Skip
++            </button>
++            <button
++              type="button"
++              onClick={save}
++              disabled={!value().trim()}
++              class="px-3 py-1.5 rounded-md text-12-regular font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
++            >
++              Save
++            </button>
++          </div>
++        </div>
++      </div>
++    </Show>
++  )
++}
+diff --git a/packages/app/src/components/presence/peer-input-preview.tsx b/packages/app/src/components/presence/peer-input-preview.tsx
+new file mode 100644
+index 000000000..8b9efff72
+--- /dev/null
++++ b/packages/app/src/components/presence/peer-input-preview.tsx
+@@ -0,0 +1,55 @@
++import { For, Show, createMemo } from "solid-js"
++import { usePresence } from "@/context/presence"
++
++export function PeerInputPreview() {
++  const presence = usePresence()
++
++  const peersWithInput = createMemo(() =>
++    presence.peers().filter((p) => p.isTyping && p.input?.text),
++  )
++
++  return (
++    <Show when={peersWithInput().length > 0}>
++      <div class="flex flex-col gap-1 px-3 py-2 border-t border-border-base">
++        <For each={peersWithInput()}>
++          {(peer) => {
++            const text = () => peer.input?.text ?? ""
++            const cursorPos = () => peer.input?.cursorPosition
++            const before = () => {
++              const pos = cursorPos()
++              if (pos === undefined) return text().slice(0, 200)
++              return text().slice(0, Math.min(pos, 200))
++            }
++            const after = () => {
++              const pos = cursorPos()
++              if (pos === undefined) return ""
++              return text().slice(pos, 200)
++            }
++            const truncated = () => text().length > 200
++
++            return (
++              <div class="flex items-start gap-2 text-12-regular">
++                <div
++                  class="size-2 rounded-full mt-1.5 shrink-0"
++                  style={{ "background-color": peer.color }}
++                />
++                <div class="flex flex-col min-w-0">
++                  <span class="text-text-weak text-11-regular">{peer.name}</span>
++                  <span class="text-text-muted max-w-md opacity-60 italic whitespace-pre-wrap break-words">
++                    {before()}
++                    <span
++                      class="inline-block w-0.5 h-3.5 rounded-full align-middle animate-pulse mx-px"
++                      style={{ "background-color": peer.color }}
++                    />
++                    {after()}
++                    {truncated() ? "..." : ""}
++                  </span>
++                </div>
++              </div>
++            )
++          }}
++        </For>
++      </div>
++    </Show>
++  )
++}
+diff --git a/packages/app/src/components/presence/remote-cursors.tsx b/packages/app/src/components/presence/remote-cursors.tsx
+new file mode 100644
+index 000000000..1eddabfee
+--- /dev/null
++++ b/packages/app/src/components/presence/remote-cursors.tsx
+@@ -0,0 +1,35 @@
++import { For, createMemo } from "solid-js"
++import { usePresence } from "@/context/presence"
++
++// eslint-disable-next-line @typescript-eslint/no-unused-vars
++interface Props {
++  editorRef: HTMLElement | undefined
++}
++
++export function RemoteCursors(_props: Props) {
++  const presence = usePresence()
++
++  const promptPeers = createMemo(() =>
++    presence.peers().filter((p) => p.cursor?.area === "prompt"),
++  )
++
++  return (
++    <For each={promptPeers()}>
++      {(peer) => (
++        <div
++          class="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium pointer-events-none"
++          style={{ color: peer.color }}
++        >
++          <div
++            class="size-1.5 rounded-full animate-pulse"
++            style={{ "background-color": peer.color }}
++          />
++          <span>
++            {peer.name}
++            {peer.isTyping ? " is typing here..." : " is here"}
++          </span>
++        </div>
++      )}
++    </For>
++  )
++}
+diff --git a/packages/app/src/components/presence/scroll-indicators.tsx b/packages/app/src/components/presence/scroll-indicators.tsx
+new file mode 100644
+index 000000000..5ef45e764
+--- /dev/null
++++ b/packages/app/src/components/presence/scroll-indicators.tsx
+@@ -0,0 +1,33 @@
++import { For, Show, createMemo } from "solid-js"
++import { usePresence } from "@/context/presence"
++
++interface Props {
++  scrollerRef: HTMLElement | undefined
++}
++
++export function ScrollIndicators(props: Props) {
++  const presence = usePresence()
++
++  const timelinePeers = createMemo(() =>
++    presence.peers().filter((p) => p.cursor?.area === "message-timeline" && p.cursor.scrollY !== undefined),
++  )
++
++  return (
++    <Show when={props.scrollerRef && timelinePeers().length > 0}>
++      <div class="absolute right-0 top-0 bottom-0 w-2 pointer-events-none z-40">
++        <For each={timelinePeers()}>
++          {(peer) => (
++            <div
++              class="absolute right-0.5 size-1.5 rounded-full transition-all duration-300"
++              style={{
++                "background-color": peer.color,
++                top: `${(peer.cursor!.scrollY! * 100).toFixed(1)}%`,
++              }}
++              title={peer.name}
++            />
++          )}
++        </For>
++      </div>
++    </Show>
++  )
++}
+diff --git a/packages/app/src/components/presence/typing-indicator.tsx b/packages/app/src/components/presence/typing-indicator.tsx
+new file mode 100644
+index 000000000..ccffdcbf4
+--- /dev/null
++++ b/packages/app/src/components/presence/typing-indicator.tsx
+@@ -0,0 +1,34 @@
++import { For, Show, createMemo } from "solid-js"
++import { usePresence } from "@/context/presence"
++
++export function TypingIndicator() {
++  const presence = usePresence()
++
++  const typingPeers = createMemo(() => presence.peers().filter((p) => p.isTyping))
++
++  const label = createMemo(() => {
++    const tp = typingPeers()
++    if (tp.length === 0) return ""
++    if (tp.length === 1) return `${tp[0].name} is typing...`
++    if (tp.length === 2) return `${tp[0].name} and ${tp[1].name} are typing...`
++    return `${tp[0].name} and ${tp.length - 1} others are typing...`
++  })
++
++  return (
++    <Show when={typingPeers().length > 0}>
++      <div class="flex items-center gap-1.5 px-3 py-1 text-11-regular text-text-weak">
++        <div class="flex gap-0.5">
++          <For each={typingPeers().slice(0, 3)}>
++            {(peer) => (
++              <div
++                class="size-1.5 rounded-full animate-pulse"
++                style={{ "background-color": peer.color }}
++              />
++            )}
++          </For>
++        </div>
++        <span>{label()}</span>
++      </div>
++    </Show>
++  )
++}
+diff --git a/packages/app/src/components/prompt-input.tsx b/packages/app/src/components/prompt-input.tsx
+index c8f72b8d2..54fe9cb8a 100644
+--- a/packages/app/src/components/prompt-input.tsx
++++ b/packages/app/src/components/prompt-input.tsx
+@@ -55,6 +55,10 @@ import { PromptImageAttachments } from "./prompt-input/image-attachments"
+ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
+ import { promptPlaceholder } from "./prompt-input/placeholder"
+ import { ImagePreview } from "@opencode-ai/ui/image-preview"
++import { usePresence } from "@/context/presence"
++import { RemoteCursors } from "./presence/remote-cursors"
++import { TypingIndicator } from "./presence/typing-indicator"
++import { PeerInputPreview } from "./presence/peer-input-preview"
+ 
+ interface PromptInputProps {
+   class?: string
+@@ -114,6 +118,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
+   const language = useLanguage()
+   const platform = usePlatform()
+   const { params, tabs, view } = useSessionLayout()
++  const presence = usePresence()
+   let editorRef!: HTMLDivElement
+   let fileInputRef: HTMLInputElement | undefined
+   let scrollRef!: HTMLDivElement
+@@ -898,8 +903,42 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
+     mirror.input = true
+     prompt.set([...rawParts, ...images], cursorPosition)
+     queueScroll()
++
++    // ── Presence: broadcast typing and input ──
++    presence.sendTyping(true)
++    if (typingTimeout) clearTimeout(typingTimeout)
++    typingTimeout = setTimeout(() => presence.sendTyping(false), 2000)
++    const plainText = rawParts
++      .filter((p): p is typeof p & { type: "text" } => p.type === "text")
++      .map((p) => p.content)
++      .join("")
++    presence.sendInput(plainText, cursorPosition)
+   }
+ 
++  let typingTimeout: ReturnType<typeof setTimeout> | undefined
++
++  // ── Presence: track cursor area ──
++  createEffect(() => {
++    const handler = () => {
++      const selection = window.getSelection()
++      if (!selection || selection.rangeCount === 0 || !editorRef?.contains(selection.anchorNode)) return
++      const pos = getCursorPosition(editorRef)
++      const sel = (() => {
++        if (selection.isCollapsed) return undefined
++        const range = selection.getRangeAt(0)
++        const preStart = range.cloneRange()
++        preStart.selectNodeContents(editorRef)
++        preStart.setEnd(range.startContainer, range.startOffset)
++        const start = preStart.toString().replace(/\u200B/g, "").length
++        const end = start + range.toString().replace(/\u200B/g, "").length
++        return { start, end }
++      })()
++      presence.sendCursor({ area: "prompt", position: pos, selection: sel })
++    }
++    document.addEventListener("selectionchange", handler)
++    onCleanup(() => document.removeEventListener("selectionchange", handler))
++  })
++
+   const addPart = (part: ContentPart) => {
+     if (part.type === "image") return false
+ 
+@@ -1369,6 +1408,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
+               </div>
+             </Show>
+           </div>
++          <TypingIndicator />
++          <PeerInputPreview />
++          <RemoteCursors editorRef={editorRef} />
+ 
+           <div
+             aria-hidden="true"
+diff --git a/packages/app/src/components/session/session-header.tsx b/packages/app/src/components/session/session-header.tsx
+index 495b32340..a47a1c764 100644
+--- a/packages/app/src/components/session/session-header.tsx
++++ b/packages/app/src/components/session/session-header.tsx
+@@ -23,6 +23,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
+ import { messageAgentColor } from "@/utils/agent"
+ import { decode64 } from "@/utils/base64"
+ import { Persist, persisted } from "@/utils/persist"
++import { AvatarBar } from "../presence/avatar-bar"
+ import { StatusPopover } from "../status-popover"
+ 
+ const OPEN_APPS = [
+@@ -414,6 +415,7 @@ export function SessionHeader() {
+                   </Show>
+                 </div>
+               </Show>
++              <AvatarBar />
+               <div class="flex items-center gap-1">
+                 <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
+                   <StatusPopover />
+diff --git a/packages/app/src/context/presence.tsx b/packages/app/src/context/presence.tsx
+new file mode 100644
+index 000000000..2287813e0
+--- /dev/null
++++ b/packages/app/src/context/presence.tsx
+@@ -0,0 +1,443 @@
++import { createSimpleContext } from "@opencode-ai/ui/context"
++import { useParams } from "@solidjs/router"
++import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
++import { createStore, produce } from "solid-js/store"
++import { useServer } from "./server"
++import { decode64 } from "@/utils/base64"
++
++// ── Types ─────────────────────────────────────────────────
++
++export type CursorArea = "prompt" | "message-timeline" | "terminal" | "file-tree" | "review" | "idle"
++
++export interface CursorState {
++  area: CursorArea
++  position?: number
++  selection?: { start: number; end: number }
++  scrollY?: number
++  messageID?: string
++}
++
++export interface PeerInfo {
++  id: string
++  name: string
++  color: string
++  connectedAt: number
++  cursor?: CursorState
++  isTyping: boolean
++}
++
++export interface PeerInputSnapshot {
++  text: string
++  cursorPosition?: number
++}
++
++export interface PeerMouse {
++  x: number
++  y: number
++  lastUpdate: number
++}
++
++export interface PeerState extends PeerInfo {
++  input?: PeerInputSnapshot
++  mouse?: PeerMouse
++}
++
++// ── Server Messages ───────────────────────────────────────
++
++type ServerMessage =
++  | { type: "welcome"; peer: PeerInfo; peers: PeerInfo[] }
++  | { type: "peer.joined"; peer: PeerInfo }
++  | { type: "peer.left"; peerID: string }
++  | { type: "peer.cursor"; peerID: string; cursor: CursorState }
++  | { type: "peer.input"; peerID: string; text: string; cursorPosition?: number }
++  | { type: "peer.typing"; peerID: string; isTyping: boolean }
++  | { type: "peer.mouse"; peerID: string; x: number; y: number }
++  | { type: "peer.name"; peerID: string; name: string }
++  | { type: "pong" }
++
++// ── Client Messages ───────────────────────────────────────
++
++type ClientMessage =
++  | {
++      type: "cursor"
++      area: CursorArea
++      position?: number
++      selection?: { start: number; end: number }
++      scrollY?: number
++      messageID?: string
++    }
++  | { type: "input"; text: string; cursorPosition?: number }
++  | { type: "typing"; isTyping: boolean }
++  | { type: "mouse"; x: number; y: number }
++  | { type: "name"; name: string }
++  | { type: "ping" }
++
++// ── Constants ─────────────────────────────────────────────
++
++const CURSOR_THROTTLE_MS = 50
++const INPUT_THROTTLE_MS = 200
++const PING_INTERVAL_MS = 10_000
++const RECONNECT_DELAY_MS = 1_000
++const MAX_RECONNECT_DELAY_MS = 30_000
++const PRESENCE_NAME_KEY = "opencode.presence.name"
++
++// ── Context ───────────────────────────────────────────────
++
++export const { use: usePresence, provider: PresenceProvider } = createSimpleContext({
++  name: "Presence",
++  gate: false,
++  init: () => {
++    const params = useParams()
++    const server = useServer()
++
++    const [localPeer, setLocalPeer] = createSignal<PeerInfo | null>(null)
++    const [store, setStore] = createStore<{ peers: Record<string, PeerState> }>({ peers: {} })
++    const [connected, setConnected] = createSignal(false)
++
++    let ws: WebSocket | null = null
++    let pingTimer: ReturnType<typeof setInterval> | undefined
++    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
++    let reconnectDelay = RECONNECT_DELAY_MS
++    let lastCursorSend = 0
++    let lastInputSend = 0
++    let pendingCursor: ClientMessage | null = null
++    let pendingInput: ClientMessage | null = null
++    let cursorTimer: ReturnType<typeof setTimeout> | undefined
++    let inputTimer: ReturnType<typeof setTimeout> | undefined
++
++    // ── WebSocket URL ──
++
++    function wsUrl(sessionID: string): string {
++      const http = server.current?.http
++      if (!http) throw new Error("No server connection")
++      const base = new URL(http.url)
++      base.protocol = base.protocol === "https:" ? "wss:" : "ws:"
++      base.pathname = `/presence/${encodeURIComponent(sessionID)}`
++      if (http.password) {
++        base.username = http.username ?? "opencode"
++        base.password = http.password
++      }
++      const directory = decode64(params.dir)
++      if (directory) {
++        base.searchParams.set("directory", directory)
++      }
++      return base.toString()
++    }
++
++    // ── Connection ──
++
++    function connect() {
++      const sessionID = params.id
++      if (!sessionID || !server.current) {
++        console.warn("[presence] skipping connect: no sessionID or server", { sessionID, hasCurrent: !!server.current })
++        return
++      }
++
++      let url: string
++      try {
++        url = wsUrl(sessionID)
++        console.log("[presence] connecting to", url)
++        ws = new WebSocket(url)
++      } catch (e) {
++        console.error("[presence] failed to create WebSocket", e)
++        scheduleReconnect()
++        return
++      }
++
++      ws.onopen = () => {
++        console.log("[presence] connected")
++        setConnected(true)
++        reconnectDelay = RECONNECT_DELAY_MS
++        pingTimer = setInterval(() => {
++          sendMessage({ type: "ping" })
++        }, PING_INTERVAL_MS)
++      }
++
++      ws.onmessage = (event) => {
++        let msg: ServerMessage
++        try {
++          msg = JSON.parse(event.data)
++        } catch {
++          return
++        }
++        console.log("[presence] received", msg.type)
++        handleMessage(msg)
++      }
++
++      ws.onclose = (e) => {
++        console.warn("[presence] closed", e.code, e.reason)
++        cleanup()
++        scheduleReconnect()
++      }
++
++      ws.onerror = (e) => {
++        console.error("[presence] error", e)
++        cleanup()
++        scheduleReconnect()
++      }
++    }
++
++    function cleanup() {
++      setConnected(false)
++      if (pingTimer) clearInterval(pingTimer)
++      pingTimer = undefined
++      ws = null
++    }
++
++    function disconnect() {
++      if (reconnectTimer) clearTimeout(reconnectTimer)
++      reconnectTimer = undefined
++      if (cursorTimer) clearTimeout(cursorTimer)
++      cursorTimer = undefined
++      if (inputTimer) clearTimeout(inputTimer)
++      inputTimer = undefined
++      if (ws) {
++        ws.onclose = null
++        ws.close()
++      }
++      cleanup()
++      setLocalPeer(null)
++      setStore("peers", {})
++    }
++
++    function scheduleReconnect() {
++      if (reconnectTimer) return
++      reconnectTimer = setTimeout(() => {
++        reconnectTimer = undefined
++        reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_DELAY_MS)
++        connect()
++      }, reconnectDelay)
++    }
++
++    // ── Message Handling ──
++
++    function handleMessage(msg: ServerMessage) {
++      switch (msg.type) {
++        case "welcome": {
++          // If user has a saved name, send it immediately
++          const savedName = localStorage.getItem(PRESENCE_NAME_KEY)
++          if (savedName && savedName !== msg.peer.name) {
++            msg.peer = { ...msg.peer, name: savedName }
++            sendMessage({ type: "name", name: savedName })
++          }
++          setLocalPeer(msg.peer)
++          batch(() => {
++            const peers: Record<string, PeerState> = {}
++            for (const p of msg.peers) {
++              peers[p.id] = { ...p, input: undefined }
++            }
++            setStore("peers", peers)
++          })
++          break
++        }
++        case "peer.joined": {
++          setStore("peers", msg.peer.id, { ...msg.peer, input: undefined })
++          break
++        }
++        case "peer.left": {
++          setStore(
++            produce((s) => {
++              delete s.peers[msg.peerID]
++            }),
++          )
++          break
++        }
++        case "peer.cursor": {
++          setStore("peers", msg.peerID, "cursor", msg.cursor)
++          break
++        }
++        case "peer.input": {
++          setStore("peers", msg.peerID, "input", {
++            text: msg.text,
++            cursorPosition: msg.cursorPosition,
++          })
++          break
++        }
++        case "peer.typing": {
++          setStore("peers", msg.peerID, "isTyping", msg.isTyping)
++          break
++        }
++        case "peer.mouse": {
++          setStore("peers", msg.peerID, "mouse", {
++            x: msg.x,
++            y: msg.y,
++            lastUpdate: Date.now(),
++          })
++          break
++        }
++        case "peer.name": {
++          setStore("peers", msg.peerID, "name", msg.name)
++          break
++        }
++        case "pong": {
++          break
++        }
++      }
++    }
++
++    // ── Sending ──
++
++    function sendMessage(msg: ClientMessage) {
++      if (!ws || ws.readyState !== WebSocket.OPEN) return
++      try {
++        ws.send(JSON.stringify(msg))
++      } catch {
++        // connection closing
++      }
++    }
++
++    function sendCursor(cursor: Omit<ClientMessage & { type: "cursor" }, "type">) {
++      const msg: ClientMessage = { type: "cursor", ...cursor }
++      const now = Date.now()
++      const elapsed = now - lastCursorSend
++
++      if (elapsed >= CURSOR_THROTTLE_MS) {
++        sendMessage(msg)
++        lastCursorSend = now
++        pendingCursor = null
++        if (cursorTimer) {
++          clearTimeout(cursorTimer)
++          cursorTimer = undefined
++        }
++      } else {
++        pendingCursor = msg
++        if (!cursorTimer) {
++          cursorTimer = setTimeout(() => {
++            cursorTimer = undefined
++            if (pendingCursor) {
++              sendMessage(pendingCursor)
++              lastCursorSend = Date.now()
++              pendingCursor = null
++            }
++          }, CURSOR_THROTTLE_MS - elapsed)
++        }
++      }
++    }
++
++    function sendInput(text: string, cursorPosition?: number) {
++      const msg: ClientMessage = { type: "input", text, cursorPosition }
++      const now = Date.now()
++      const elapsed = now - lastInputSend
++
++      if (elapsed >= INPUT_THROTTLE_MS) {
++        sendMessage(msg)
++        lastInputSend = now
++        pendingInput = null
++        if (inputTimer) {
++          clearTimeout(inputTimer)
++          inputTimer = undefined
++        }
++      } else {
++        pendingInput = msg
++        if (!inputTimer) {
++          inputTimer = setTimeout(() => {
++            inputTimer = undefined
++            if (pendingInput) {
++              sendMessage(pendingInput)
++              lastInputSend = Date.now()
++              pendingInput = null
++            }
++          }, INPUT_THROTTLE_MS - elapsed)
++        }
++      }
++    }
++
++    function sendTyping(isTyping: boolean) {
++      sendMessage({ type: "typing", isTyping })
++    }
++
++    function setName(name: string) {
++      const trimmed = name.trim()
++      if (!trimmed) return
++      localStorage.setItem(PRESENCE_NAME_KEY, trimmed)
++      sendMessage({ type: "name", name: trimmed })
++      setLocalPeer((prev) => (prev ? { ...prev, name: trimmed } : null))
++    }
++
++    const hasName = () => !!localStorage.getItem(PRESENCE_NAME_KEY)
++
++    // ── Mouse tracking ──
++
++    const MOUSE_THROTTLE_MS = 50
++    let lastMouseSend = 0
++    let pendingMouse: ClientMessage | null = null
++    let mouseTimer: ReturnType<typeof setTimeout> | undefined
++
++    function sendMouse(x: number, y: number) {
++      const msg: ClientMessage = { type: "mouse", x, y }
++      const now = Date.now()
++      const elapsed = now - lastMouseSend
++
++      if (elapsed >= MOUSE_THROTTLE_MS) {
++        sendMessage(msg)
++        lastMouseSend = now
++        pendingMouse = null
++        if (mouseTimer) {
++          clearTimeout(mouseTimer)
++          mouseTimer = undefined
++        }
++      } else {
++        pendingMouse = msg
++        if (!mouseTimer) {
++          mouseTimer = setTimeout(() => {
++            mouseTimer = undefined
++            if (pendingMouse) {
++              sendMessage(pendingMouse)
++              lastMouseSend = Date.now()
++              pendingMouse = null
++            }
++          }, MOUSE_THROTTLE_MS - elapsed)
++        }
++      }
++    }
++
++    // Track mouse movement on the page
++    const handleMouseMove = (e: MouseEvent) => {
++      // Send as percentage of viewport so it works across different screen sizes
++      const x = e.clientX / window.innerWidth
++      const y = e.clientY / window.innerHeight
++      sendMouse(x, y)
++    }
++
++    document.addEventListener("mousemove", handleMouseMove)
++    onCleanup(() => {
++      document.removeEventListener("mousemove", handleMouseMove)
++      if (mouseTimer) clearTimeout(mouseTimer)
++    })
++
++    // ── Lifecycle ──
++
++    const sessionID = createMemo(() => params.id)
++
++    console.log("[presence] init, params.id =", params.id, "server.current =", !!server.current)
++
++    createEffect(
++      on(sessionID, (id, prev) => {
++        console.log("[presence] sessionID changed:", { id, prev })
++        if (prev) disconnect()
++        if (id) connect()
++      }),
++    )
++
++    onCleanup(disconnect)
++
++    // ── Public API ──
++
++    const peers = createMemo(() => Object.values(store.peers))
++    const peerCount = createMemo(() => Object.keys(store.peers).length)
++
++    return {
++      localPeer,
++      peers,
++      peerCount,
++      connected,
++      peer: (id: string) => store.peers[id] as PeerState | undefined,
++      sendCursor,
++      sendInput,
++      sendTyping,
++      sendMouse,
++      setName,
++      hasName,
++    }
++  },
++})
+diff --git a/packages/app/src/pages/session/message-timeline.tsx b/packages/app/src/pages/session/message-timeline.tsx
+index a246abaf3..87d1d31f9 100644
+--- a/packages/app/src/pages/session/message-timeline.tsx
++++ b/packages/app/src/pages/session/message-timeline.tsx
+@@ -28,6 +28,8 @@ import { usePlatform } from "@/context/platform"
+ import { useSettings } from "@/context/settings"
+ import { useSDK } from "@/context/sdk"
+ import { useSync } from "@/context/sync"
++import { usePresence } from "@/context/presence"
++import { ScrollIndicators } from "@/components/presence/scroll-indicators"
+ import { messageAgentColor } from "@/utils/agent"
+ import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
+ import { makeTimer } from "@solid-primitives/timer"
+@@ -226,6 +228,8 @@ export function MessageTimeline(props: {
+   const sdk = useSDK()
+   const sync = useSync()
+   const settings = useSettings()
++  const presence = usePresence()
++  let scrollContainerRef: HTMLDivElement | undefined
+   const dialog = useDialog()
+   const language = useLanguage()
+   const { params, sessionKey } = useSessionKey()
+@@ -582,7 +586,10 @@ export function MessageTimeline(props: {
+           </button>
+         </div>
+         <ScrollView
+-          viewportRef={props.setScrollRef}
++          viewportRef={(el) => {
++            scrollContainerRef = el
++            props.setScrollRef(el)
++          }}
+           onWheel={(e) => {
+             const root = e.currentTarget
+             const delta = normalizeWheelDelta({
+@@ -621,6 +628,15 @@ export function MessageTimeline(props: {
+           onScroll={(e) => {
+             props.onScheduleScrollState(e.currentTarget)
+             props.onTurnBackfillScroll()
++            // Broadcast scroll position to presence peers
++            const el = e.currentTarget
++            const maxScroll = el.scrollHeight - el.clientHeight
++            if (maxScroll > 0) {
++              presence.sendCursor({
++                area: "message-timeline",
++                scrollY: Math.max(0, Math.min(1, el.scrollTop / maxScroll)),
++              })
++            }
+             if (!props.hasScrollGesture()) return
+             props.onUserScroll()
+             props.onAutoScrollHandleScroll()
+@@ -1011,6 +1027,7 @@ export function MessageTimeline(props: {
+             </div>
+           </div>
+         </ScrollView>
++        <ScrollIndicators scrollerRef={scrollContainerRef} />
+       </div>
+     </Show>
+   )
+diff --git a/packages/opencode/src/presence/index.ts b/packages/opencode/src/presence/index.ts
+new file mode 100644
+index 000000000..2641ab9ba
+--- /dev/null
++++ b/packages/opencode/src/presence/index.ts
+@@ -0,0 +1,271 @@
++import z from "zod"
++import { BusEvent } from "@/bus/bus-event"
++import { Log } from "../util/log"
++
++const log = Log.create({ service: "presence" })
++
++export namespace Presence {
++  // ── Schemas ──────────────────────────────────────────────
++
++  export const CursorArea = z.enum([
++    "prompt",
++    "message-timeline",
++    "terminal",
++    "file-tree",
++    "review",
++    "idle",
++  ])
++  export type CursorArea = z.infer<typeof CursorArea>
++
++  export const CursorState = z.object({
++    area: CursorArea,
++    position: z.number().optional(),
++    selection: z
++      .object({
++        start: z.number(),
++        end: z.number(),
++      })
++      .optional(),
++    scrollY: z.number().optional(),
++    messageID: z.string().optional(),
++  })
++  export type CursorState = z.infer<typeof CursorState>
++
++  export const PeerInfo = z
++    .object({
++      id: z.string(),
++      name: z.string(),
++      color: z.string(),
++      connectedAt: z.number(),
++      cursor: CursorState.optional(),
++      isTyping: z.boolean(),
++    })
++    .meta({ ref: "PresencePeer" })
++  export type PeerInfo = z.infer<typeof PeerInfo>
++
++  export const InputSnapshot = z.object({
++    text: z.string(),
++    cursorPosition: z.number().optional(),
++  })
++  export type InputSnapshot = z.infer<typeof InputSnapshot>
++
++  // ── Bus Events ──────────────────────────────────────────
++
++  export const Event = {
++    PeerJoined: BusEvent.define(
++      "presence.peer.joined",
++      z.object({
++        sessionID: z.string(),
++        peer: PeerInfo,
++      }),
++    ),
++    PeerLeft: BusEvent.define(
++      "presence.peer.left",
++      z.object({
++        sessionID: z.string(),
++        peerID: z.string(),
++      }),
++    ),
++    PeerUpdated: BusEvent.define(
++      "presence.peer.updated",
++      z.object({
++        sessionID: z.string(),
++        peerID: z.string(),
++        cursor: CursorState.optional(),
++        input: InputSnapshot.optional(),
++        isTyping: z.boolean().optional(),
++      }),
++    ),
++  }
++
++  // ── Color Assignment ────────────────────────────────────
++
++  const PEER_COLORS = [
++    "#FF6B6B",
++    "#4ECDC4",
++    "#45B7D1",
++    "#96CEB4",
++    "#FFEAA7",
++    "#DDA0DD",
++    "#98D8C8",
++    "#F7DC6F",
++    "#BB8FCE",
++    "#85C1E9",
++  ] as const
++
++  let colorIndex = 0
++  function nextColor(): string {
++    const color = PEER_COLORS[colorIndex % PEER_COLORS.length]
++    colorIndex++
++    return color
++  }
++
++  // ── Random Names ────────────────────────────────────────
++
++  const ADJECTIVES = ["Swift", "Quiet", "Bold", "Bright", "Clever", "Gentle", "Keen", "Nimble", "Sharp", "Steady"]
++  const ANIMALS = ["Falcon", "Panda", "Fox", "Otter", "Hawk", "Lynx", "Owl", "Wolf", "Heron", "Seal"]
++
++  function randomName(): string {
++    const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]
++    const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
++    return `${adj} ${animal}`
++  }
++
++  // ── Socket Type ─────────────────────────────────────────
++
++  type Socket = {
++    readyState: number
++    send: (data: string | Uint8Array | ArrayBuffer) => void
++    close: (code?: number, reason?: string) => void
++  }
++
++  // ── Session Presence State ──────────────────────────────
++
++  type PeerConnection = {
++    info: PeerInfo
++    socket: Socket
++    lastActivity: number
++    input?: InputSnapshot
++  }
++
++  type SessionPresence = {
++    peers: Map<string, PeerConnection>
++  }
++
++  const sessions = new Map<string, SessionPresence>()
++
++  function getSession(sessionID: string): SessionPresence {
++    let session = sessions.get(sessionID)
++    if (!session) {
++      session = { peers: new Map() }
++      sessions.set(sessionID, session)
++    }
++    return session
++  }
++
++  function cleanupSession(sessionID: string) {
++    const session = sessions.get(sessionID)
++    if (session && session.peers.size === 0) {
++      sessions.delete(sessionID)
++    }
++  }
++
++  // ── Public API ──────────────────────────────────────────
++
++  export function join(sessionID: string, socket: Socket, opts?: { name?: string }): PeerConnection {
++    const session = getSession(sessionID)
++    const id = crypto.randomUUID()
++    const peer: PeerInfo = {
++      id,
++      name: opts?.name || randomName(),
++      color: nextColor(),
++      connectedAt: Date.now(),
++      isTyping: false,
++    }
++    const conn: PeerConnection = {
++      info: peer,
++      socket,
++      lastActivity: Date.now(),
++    }
++    session.peers.set(id, conn)
++    log.info("peer joined", { sessionID, peerID: id, name: peer.name })
++    return conn
++  }
++
++  export function leave(sessionID: string, peerID: string) {
++    const session = sessions.get(sessionID)
++    if (!session) return
++    const peer = session.peers.get(peerID)
++    if (peer) {
++      session.peers.delete(peerID)
++      log.info("peer left", { sessionID, peerID, name: peer.info.name })
++    }
++    cleanupSession(sessionID)
++  }
++
++  export function getPeers(sessionID: string): PeerInfo[] {
++    const session = sessions.get(sessionID)
++    if (!session) return []
++    return Array.from(session.peers.values()).map((c) => c.info)
++  }
++
++  export function getPeerInput(sessionID: string, peerID: string): InputSnapshot | undefined {
++    const session = sessions.get(sessionID)
++    if (!session) return
++    return session.peers.get(peerID)?.input
++  }
++
++  /** Broadcast a message to all peers in a session EXCEPT the sender */
++  export function broadcast(sessionID: string, senderID: string, message: string) {
++    const session = sessions.get(sessionID)
++    if (!session) return
++    for (const [id, conn] of session.peers) {
++      if (id === senderID) continue
++      if (conn.socket.readyState !== 1) {
++        session.peers.delete(id)
++        continue
++      }
++      try {
++        conn.socket.send(message)
++      } catch {
++        session.peers.delete(id)
++      }
++    }
++    cleanupSession(sessionID)
++  }
++
++  /** Update a peer's state */
++  export function updatePeer(
++    sessionID: string,
++    peerID: string,
++    update: {
++      cursor?: CursorState
++      input?: InputSnapshot
++      isTyping?: boolean
++      name?: string
++    },
++  ) {
++    const session = sessions.get(sessionID)
++    if (!session) return
++    const conn = session.peers.get(peerID)
++    if (!conn) return
++
++    conn.lastActivity = Date.now()
++
++    if (update.cursor) {
++      conn.info.cursor = update.cursor
++    }
++    if (update.input !== undefined) {
++      conn.input = update.input
++    }
++    if (update.isTyping !== undefined) {
++      conn.info.isTyping = update.isTyping
++    }
++    if (update.name) {
++      conn.info.name = update.name
++    }
++  }
++
++  // ── Stale Cleanup ───────────────────────────────────────
++
++  const STALE_TIMEOUT_MS = 30_000
++
++  export function cleanupStale() {
++    const now = Date.now()
++    for (const [sessionID, session] of sessions) {
++      for (const [peerID, conn] of session.peers) {
++        if (now - conn.lastActivity > STALE_TIMEOUT_MS) {
++          log.info("removing stale peer", { sessionID, peerID })
++          try {
++            conn.socket.close(1000, "stale")
++          } catch {}
++          session.peers.delete(peerID)
++        }
++      }
++      cleanupSession(sessionID)
++    }
++  }
++
++  // eslint-disable-next-line @typescript-eslint/no-unused-vars
++  void setInterval(cleanupStale, 15_000)
++}
+diff --git a/packages/opencode/src/server/instance.ts b/packages/opencode/src/server/instance.ts
+index 4bb6efaf9..11972b32b 100644
+--- a/packages/opencode/src/server/instance.ts
++++ b/packages/opencode/src/server/instance.ts
+@@ -25,6 +25,7 @@ import { ConfigRoutes } from "./routes/config"
+ import { ExperimentalRoutes } from "./routes/experimental"
+ import { ProviderRoutes } from "./routes/provider"
+ import { EventRoutes } from "./routes/event"
++import { PresenceRoutes } from "./routes/presence"
+ import { errorHandler } from "./middleware"
+ 
+ const log = Log.create({ service: "server" })
+@@ -53,6 +54,7 @@ export const InstanceRoutes = (app?: Hono) =>
+     .route("/provider", ProviderRoutes())
+     .route("/", FileRoutes())
+     .route("/", EventRoutes())
++    .route("/presence", PresenceRoutes())
+     .route("/mcp", McpRoutes())
+     .route("/tui", TuiRoutes())
+     .post(
+diff --git a/packages/opencode/src/server/routes/presence.ts b/packages/opencode/src/server/routes/presence.ts
+new file mode 100644
+index 000000000..8d03a841f
+--- /dev/null
++++ b/packages/opencode/src/server/routes/presence.ts
+@@ -0,0 +1,295 @@
++import { Hono } from "hono"
++import { describeRoute, validator } from "hono-openapi"
++import { upgradeWebSocket } from "hono/bun"
++import z from "zod"
++import { Presence } from "@/presence"
++import { Bus } from "@/bus"
++import { Log } from "@/util/log"
++import { lazy } from "../../util/lazy"
++
++const log = Log.create({ service: "presence" })
++
++// ── Wire Protocol ───────────────────────────────────────
++
++const ClientMessage = z.discriminatedUnion("type", [
++  z.object({
++    type: z.literal("cursor"),
++    area: Presence.CursorArea,
++    position: z.number().optional(),
++    selection: z.object({ start: z.number(), end: z.number() }).optional(),
++    scrollY: z.number().optional(),
++    messageID: z.string().optional(),
++  }),
++  z.object({
++    type: z.literal("input"),
++    text: z.string(),
++    cursorPosition: z.number().optional(),
++  }),
++  z.object({
++    type: z.literal("typing"),
++    isTyping: z.boolean(),
++  }),
++  z.object({
++    type: z.literal("mouse"),
++    x: z.number(),
++    y: z.number(),
++  }),
++  z.object({
++    type: z.literal("name"),
++    name: z.string().min(1).max(30),
++  }),
++  z.object({
++    type: z.literal("ping"),
++  }),
++])
++
++type ServerMessage =
++  | { type: "welcome"; peer: Presence.PeerInfo; peers: Presence.PeerInfo[] }
++  | { type: "peer.joined"; peer: Presence.PeerInfo }
++  | { type: "peer.left"; peerID: string }
++  | { type: "peer.cursor"; peerID: string; cursor: Presence.CursorState }
++  | { type: "peer.input"; peerID: string; text: string; cursorPosition?: number }
++  | { type: "peer.typing"; peerID: string; isTyping: boolean }
++  | { type: "peer.mouse"; peerID: string; x: number; y: number }
++  | { type: "peer.name"; peerID: string; name: string }
++  | { type: "pong" }
++
++function sendJSON(
++  socket: { send: (data: string | Uint8Array | ArrayBuffer) => void; readyState: number },
++  msg: ServerMessage,
++) {
++  if (socket.readyState !== 1) return
++  try {
++    socket.send(JSON.stringify(msg))
++  } catch {
++    // connection closing
++  }
++}
++
++export const PresenceRoutes = lazy(() =>
++  new Hono().get(
++    "/:sessionID",
++    describeRoute({
++      summary: "Connect to session presence",
++      description:
++        "Establish a WebSocket connection for real-time collaborative presence in a session. " +
++        "Provides cursor positions, typing indicators, and live input previews of all connected peers.",
++      operationId: "presence.connect",
++      responses: {
++        200: {
++          description: "WebSocket connection established",
++        },
++      },
++    }),
++    validator(
++      "param",
++      z.object({
++        sessionID: z.string(),
++      }),
++    ),
++    upgradeWebSocket(async (c) => {
++      const sessionID = c.req.param("sessionID")
++      const name = c.req.query("name") || undefined
++
++      type Socket = {
++        readyState: number
++        send: (data: string | Uint8Array | ArrayBuffer) => void
++        close: (code?: number, reason?: string) => void
++      }
++
++      const isSocket = (value: unknown): value is Socket => {
++        if (!value || typeof value !== "object") return false
++        if (!("readyState" in value)) return false
++        if (!("send" in value) || typeof (value as { send?: unknown }).send !== "function") return false
++        if (!("close" in value) || typeof (value as { close?: unknown }).close !== "function") return false
++        return typeof (value as { readyState?: unknown }).readyState === "number"
++      }
++
++      let conn: ReturnType<typeof Presence.join> | undefined
++      let peerID: string | undefined
++
++      return {
++        async onOpen(_event, ws) {
++          const socket = ws.raw
++          if (!isSocket(socket)) {
++            ws.close()
++            return
++          }
++
++          conn = Presence.join(sessionID, socket, { name })
++          peerID = conn.info.id
++
++          // Send welcome with current peer list
++          const peers = Presence.getPeers(sessionID)
++          sendJSON(socket, {
++            type: "welcome",
++            peer: conn.info,
++            peers: peers.filter((p) => p.id !== peerID),
++          })
++
++          // Broadcast join to other peers
++          Presence.broadcast(
++            sessionID,
++            peerID,
++            JSON.stringify({
++              type: "peer.joined",
++              peer: conn.info,
++            } satisfies ServerMessage),
++          )
++
++          // Publish to Bus for SSE subscribers
++          await Bus.publish(Presence.Event.PeerJoined, {
++            sessionID,
++            peer: conn.info,
++          })
++
++          log.info("presence connected", {
++            sessionID,
++            peerID,
++            name: conn.info.name,
++            totalPeers: peers.length,
++          })
++        },
++
++        onMessage(event) {
++          if (!peerID || !conn) return
++          if (typeof event.data !== "string") return
++
++          let msg: z.infer<typeof ClientMessage>
++          try {
++            msg = ClientMessage.parse(JSON.parse(event.data))
++          } catch {
++            return
++          }
++
++          conn.lastActivity = Date.now()
++
++          switch (msg.type) {
++            case "cursor": {
++              const cursor: Presence.CursorState = {
++                area: msg.area,
++                position: msg.position,
++                selection: msg.selection,
++                scrollY: msg.scrollY,
++                messageID: msg.messageID,
++              }
++              Presence.updatePeer(sessionID, peerID, { cursor })
++              Presence.broadcast(
++                sessionID,
++                peerID,
++                JSON.stringify({
++                  type: "peer.cursor",
++                  peerID,
++                  cursor,
++                } satisfies ServerMessage),
++              )
++              break
++            }
++
++            case "input": {
++              const input: Presence.InputSnapshot = {
++                text: msg.text,
++                cursorPosition: msg.cursorPosition,
++              }
++              Presence.updatePeer(sessionID, peerID, { input })
++              Presence.broadcast(
++                sessionID,
++                peerID,
++                JSON.stringify({
++                  type: "peer.input",
++                  peerID,
++                  text: msg.text,
++                  cursorPosition: msg.cursorPosition,
++                } satisfies ServerMessage),
++              )
++              break
++            }
++
++            case "typing": {
++              Presence.updatePeer(sessionID, peerID, { isTyping: msg.isTyping })
++              Presence.broadcast(
++                sessionID,
++                peerID,
++                JSON.stringify({
++                  type: "peer.typing",
++                  peerID,
++                  isTyping: msg.isTyping,
++                } satisfies ServerMessage),
++              )
++              break
++            }
++
++            case "name": {
++              Presence.updatePeer(sessionID, peerID, { name: msg.name })
++              Presence.broadcast(
++                sessionID,
++                peerID,
++                JSON.stringify({
++                  type: "peer.name",
++                  peerID,
++                  name: msg.name,
++                } satisfies ServerMessage),
++              )
++              break
++            }
++
++            case "mouse": {
++              Presence.broadcast(
++                sessionID,
++                peerID,
++                JSON.stringify({
++                  type: "peer.mouse",
++                  peerID,
++                  x: msg.x,
++                  y: msg.y,
++                } satisfies ServerMessage),
++              )
++              break
++            }
++
++            case "ping": {
++              if (conn.socket.readyState === 1) {
++                sendJSON(conn.socket, { type: "pong" })
++              }
++              break
++            }
++          }
++        },
++
++        async onClose() {
++          if (!peerID) return
++          log.info("presence disconnected", { sessionID, peerID })
++
++          Presence.leave(sessionID, peerID)
++
++          Presence.broadcast(
++            sessionID,
++            peerID,
++            JSON.stringify({
++              type: "peer.left",
++              peerID,
++            } satisfies ServerMessage),
++          )
++
++          await Bus.publish(Presence.Event.PeerLeft, {
++            sessionID,
++            peerID,
++          })
++        },
++
++        async onError() {
++          if (!peerID) return
++          Presence.leave(sessionID, peerID)
++          Presence.broadcast(
++            sessionID,
++            peerID,
++            JSON.stringify({
++              type: "peer.left",
++              peerID,
++            } satisfies ServerMessage),
++          )
++        },
++      }
++    }),
++  ),
++)
+diff --git a/packages/opencode/src/server/server.ts b/packages/opencode/src/server/server.ts
+index ec245ed59..932e506be 100644
+--- a/packages/opencode/src/server/server.ts
++++ b/packages/opencode/src/server/server.ts
+@@ -30,13 +30,14 @@ export namespace Server {
+
+   const skipCompress = (path: string, method: string) => {
+     if (path === "/event" || path === "/global/event" || path === "/global/sync-event") return true
++    if (path.startsWith("/presence/")) return true
+     if (method === "POST" && /\/session\/[^/]+\/(message|prompt_async)$/.test(path)) return true
+     return false
+   }
+
+   export const Default = lazy(() => ControlPlaneRoutes())
+
+-  export const ControlPlaneRoutes = (opts?: { cors?: string[] }): Hono => {
++  export const ControlPlaneRoutes = (opts?: { cors?: string[]; hostname?: string }): Hono => {
+     const app = new Hono()
+     return app
+       .onError(errorHandler(log))
+@@ -81,6 +82,14 @@ export namespace Server {
+             )
+               return input
+
++            // when bound to all interfaces, allow any IP-based origin (network access)
++            if (
++              opts?.hostname === "0.0.0.0" &&
++              /^https?:\/\/\d+\.\d+\.\d+\.\d+(:\d+)?$/.test(input)
++            ) {
++              return input
++            }
++
+             // *.opencode.ai (https only, adjust if needed)
+             if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
+               return input
+@@ -272,7 +281,7 @@ export namespace Server {
+     cors?: string[]
+   }) {
+     url = new URL(`http://${opts.hostname}:${opts.port}`)
+-    const app = ControlPlaneRoutes({ cors: opts.cors })
++    const app = ControlPlaneRoutes({ cors: opts.cors, hostname: opts.hostname })
+     const args = {
+       hostname: opts.hostname,
+       idleTimeout: 0,
+diff --git a/packages/app/src/entry.tsx b/packages/app/src/entry.tsx
+index b5cbed6e7..8830b148a 100644
+--- a/packages/app/src/entry.tsx
++++ b/packages/app/src/entry.tsx
+@@ -100,7 +100,7 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
+ const getCurrentUrl = () => {
+   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
+   if (import.meta.env.DEV)
+-    return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
++    return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? location.hostname}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
+   return location.origin
+ }
+ 
+diff --git a/packages/opencode/src/cli/network.ts b/packages/opencode/src/cli/network.ts
+index 84268e267..a4d2174e8 100644
+--- a/packages/opencode/src/cli/network.ts
++++ b/packages/opencode/src/cli/network.ts
+@@ -10,7 +10,7 @@ const options = {
+   hostname: {
+     type: "string" as const,
+     describe: "hostname to listen on",
+-    default: "127.0.0.1",
++    default: "0.0.0.0",
+   },
+   mdns: {
+     type: "boolean" as const,
