@@ -420,7 +420,7 @@ export function SessionHeader() {
                 <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
                   <StatusPopover />
                 </Tooltip>
-                <TooltipKeybind
+                {/* <TooltipKeybind
                   title={language.t("command.terminal.toggle")}
                   keybind={command.keybind("terminal.toggle")}
                 >
@@ -434,7 +434,7 @@ export function SessionHeader() {
                   >
                     <Icon size="small" name={view().terminal.opened() ? "terminal-active" : "terminal"} />
                   </Button>
-                </TooltipKeybind>
+                </TooltipKeybind> */}
 
                 <div class="hidden md:flex items-center gap-1 shrink-0">
                   <TooltipKeybind
