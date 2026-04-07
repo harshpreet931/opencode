@@ -32,6 +32,7 @@ export namespace Presence {
       connectedAt: z.number(),
       cursor: CursorState.optional(),
       isTyping: z.boolean(),
+      browser: z.string().optional(),
     })
     .meta({ ref: "PresencePeer" })
   export type PeerInfo = z.infer<typeof PeerInfo>
@@ -145,7 +146,7 @@ export namespace Presence {
 
   // ── Public API ──────────────────────────────────────────
 
-  export function join(sessionID: string, socket: Socket, opts?: { name?: string; color?: string }): PeerConnection {
+  export function join(sessionID: string, socket: Socket, opts?: { name?: string; color?: string; browser?: string }): PeerConnection {
     const session = getSession(sessionID)
     const id = crypto.randomUUID()
     const peer: PeerInfo = {
@@ -154,6 +155,7 @@ export namespace Presence {
       color: opts?.color || nextColor(),
       connectedAt: Date.now(),
       isTyping: false,
+      browser: opts?.browser,
     }
     const conn: PeerConnection = {
       info: peer,

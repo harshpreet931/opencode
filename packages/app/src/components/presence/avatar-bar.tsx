@@ -13,6 +13,15 @@ function initials(name: string) {
     .toUpperCase()
 }
 
+function sinceConnected(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60_000)
+  if (mins < 1) return "just joined"
+  if (mins === 1) return "1 min ago"
+  if (mins < 60) return `${mins} mins ago`
+  const hrs = Math.floor(mins / 60)
+  return hrs === 1 ? "1 hr ago" : `${hrs} hrs ago`
+}
+
 function Avatar(props: {
   name: string
   color: string
@@ -71,7 +80,7 @@ export function AvatarBar() {
               color={peer().color}
               bold
               ring
-              title={`${peer().name} (you) — click to change name`}
+              title={[`${peer().name} (you)`, peer().browser, "click to change name"].filter(Boolean).join(" · ")}
               onClick={() => setShowNameDialog(true)}
             />
           )}
@@ -84,7 +93,7 @@ export function AvatarBar() {
               name={peer.name}
               color={peer.color}
               pulse={peer.isTyping}
-              title={peer.name + (peer.isTyping ? " (typing…)" : "")}
+              title={[peer.name + (peer.isTyping ? " (typing…)" : ""), peer.browser, sinceConnected(peer.connectedAt)].filter(Boolean).join(" · ")}
             />
           )}
         </For>
@@ -120,10 +129,15 @@ export function AvatarBar() {
                   >
                     {initials(peer().name)}
                   </div>
-                  <span class="text-12-regular text-text-base truncate" title={peer().name}>
-                    {peer().name}
-                  </span>
-                  <span class="text-10-regular text-text-weak ml-auto">you</span>
+                  <div class="flex flex-col min-w-0">
+                    <span class="text-12-regular text-text-base truncate" title={peer().name}>
+                      {peer().name}
+                    </span>
+                    <Show when={peer().browser}>
+                      <span class="text-10-regular text-text-weak truncate">{peer().browser}</span>
+                    </Show>
+                  </div>
+                  <span class="text-10-regular text-text-weak ml-auto shrink-0">you</span>
                 </div>
               )}
             </Show>
@@ -137,11 +151,16 @@ export function AvatarBar() {
                   >
                     {initials(peer.name)}
                   </div>
-                  <span class="text-12-regular text-text-base truncate" title={peer.name}>
-                    {peer.name}
-                  </span>
+                  <div class="flex flex-col min-w-0">
+                    <span class="text-12-regular text-text-base truncate" title={peer.name}>
+                      {peer.name}
+                    </span>
+                    <span class="text-10-regular text-text-weak truncate">
+                      {[peer.browser, sinceConnected(peer.connectedAt)].filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
                   <Show when={peer.isTyping}>
-                    <span class="text-10-regular text-text-weak ml-auto">typing…</span>
+                    <span class="text-10-regular text-text-weak ml-auto shrink-0">typing…</span>
                   </Show>
                 </div>
               )}

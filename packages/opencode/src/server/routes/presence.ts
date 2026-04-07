@@ -92,6 +92,7 @@ export const PresenceRoutes = lazy(() =>
       const sessionID = c.req.param("sessionID")
       const name = c.req.query("name") || undefined
       const color = c.req.query("color") || undefined
+      const browser = c.req.query("browser") || undefined
 
       type Socket = {
         readyState: number
@@ -118,7 +119,7 @@ export const PresenceRoutes = lazy(() =>
             return
           }
 
-          conn = Presence.join(sessionID, socket, { name, color })
+          conn = Presence.join(sessionID, socket, { name, color, browser })
           peerID = conn.info.id
 
           // Send welcome with current peer list
