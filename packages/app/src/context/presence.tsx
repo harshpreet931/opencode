@@ -48,6 +48,21 @@ export interface RecentStop {
   time: number
 }
 
+export type ActivityType = "join" | "leave" | "typing" | "cursor" | "file" | "message"
+
+export interface ActivityEvent {
+  type: ActivityType
+  peerID: string
+  peerName: string
+  peerColor: string
+  timestamp: number
+  data?: {
+    area?: CursorArea
+    file?: string
+    messageID?: string
+  }
+}
+
 // ── Server Messages ───────────────────────────────────────
 
 type ServerMessage =
@@ -117,6 +132,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     const [store, setStore] = createStore<{ peers: Record<string, PeerState> }>({ peers: {} })
     const [connected, setConnected] = createSignal(false)
     const [recentStops, setRecentStops] = createSignal<RecentStop[]>([])
+    const [activities, setActivities] = createSignal<ActivityEvent[]>([])
 
     let ws: WebSocket | null = null
     let pingTimer: ReturnType<typeof setInterval> | undefined
@@ -131,6 +147,26 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
     let cursorTimer: ReturnType<typeof setTimeout> | undefined
     let inputTimer: ReturnType<typeof setTimeout> | undefined
     let mouseTimer: ReturnType<typeof setTimeout> | undefined
+
+    const MAX_ACTIVITY_EVENTS = 50
+
+    function logActivity(type: ActivityType, peerID: string, peer: PeerState, data?: ActivityEvent["data"]) {
+      const now = Date.now()
+      setActivities((prev: ActivityEvent[]) => {
+        const newEvents = [
+          {
+            type,
+            peerID,
+            peerName: peer.name,
+            peerColor: peer.color,
+            timestamp: now,
+            data,
+          },
+          ...prev.filter((a: ActivityEvent) => now - a.timestamp < 300_000),
+        ].slice(0, MAX_ACTIVITY_EVENTS)
+        return newEvents
+      })
+    }
 
     // ── WebSocket URL ──
 
@@ -294,14 +330,23 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
             }
             console.log("[presence] setting peers", { count: Object.keys(peers).length, keys: Object.keys(peers) })
             setStore("peers", reconcile(peers))
+            for (const p of msg.peers) {
+              if (p.id !== msg.peer.id) {
+                logActivity("join", p.id, { ...p, input: undefined })
+              }
+            }
           })
           break
         }
         case "peer.joined": {
           setStore("peers", msg.peer.id, { ...msg.peer, input: undefined })
+          const peer = store.peers[msg.peer.id]
+          if (peer) logActivity("join", msg.peer.id, peer)
           break
         }
         case "peer.left": {
+          const leftPeer = store.peers[msg.peerID]
+          if (leftPeer) logActivity("leave", msg.peerID, leftPeer)
           setStore(
             produce((s) => {
               delete s.peers[msg.peerID]
@@ -311,6 +356,8 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
         }
         case "peer.cursor": {
           setStore("peers", msg.peerID, "cursor", msg.cursor)
+          const cursorPeer = store.peers[msg.peerID]
+          if (cursorPeer) logActivity("cursor", msg.peerID, cursorPeer, { area: msg.cursor.area })
           break
         }
         case "peer.input": {
@@ -324,12 +371,11 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
           const wasTyping = store.peers[msg.peerID]?.isTyping
           setStore("peers", msg.peerID, "isTyping", msg.isTyping)
           if (!wasTyping && msg.isTyping) {
-            // Snapshot peer at the moment they START typing so attribution
-            // is available even before they stop (race-free)
             const snap = store.peers[msg.peerID]
             if (snap) {
               const now = Date.now()
               setRecentStops((prev) => [{ peer: { ...snap }, time: now }, ...prev.filter((s) => now - s.time < 30_000)])
+              logActivity("typing", msg.peerID, snap)
             }
           }
           break
@@ -555,6 +601,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       peerCount,
       connected,
       recentStops,
+      activities,
       peer: (id: string) => store.peers[id] as PeerState | undefined,
       sendCursor,
       sendInput,

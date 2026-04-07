@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { usePresence } from "@/context/presence"
 import { PresenceNameDialog } from "./name-dialog"
+import { ActivityTimeline } from "./activity-timeline"
 
 const MAX_VISIBLE = 3
 
@@ -52,7 +53,9 @@ function PeerModal(props: { peer: PeerDetail; onClose: () => void; onChangeName:
             <div class="flex items-center gap-1.5">
               <span class="text-14-regular font-semibold text-text-strong truncate">{props.peer.name}</span>
               <Show when={props.peer.isLocal}>
-                <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface-raised-base text-text-weak shrink-0">you</span>
+                <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface-raised-base text-text-weak shrink-0">
+                  you
+                </span>
               </Show>
             </div>
             <Show when={props.peer.isTyping}>
@@ -82,7 +85,10 @@ function PeerModal(props: { peer: PeerDetail; onClose: () => void; onChangeName:
           <Show when={props.peer.isLocal}>
             <button
               class="py-2 rounded-lg bg-surface-raised-base hover:bg-surface-raised-base-hover text-12-regular text-text-base transition-colors"
-              onClick={() => { props.onClose(); props.onChangeName() }}
+              onClick={() => {
+                props.onClose()
+                props.onChangeName()
+              }}
             >
               Change display name
             </button>
@@ -159,7 +165,9 @@ export function AvatarBar() {
               bold
               ring
               title={[`${peer().name} (you)`, peer().browser, "click to change name"].filter(Boolean).join(" · ")}
-              onClick={() => setModal({ name: peer().name, color: peer().color, browser: peer().browser, isLocal: true })}
+              onClick={() =>
+                setModal({ name: peer().name, color: peer().color, browser: peer().browser, isLocal: true })
+              }
             />
           )}
         </Show>
@@ -171,8 +179,18 @@ export function AvatarBar() {
               name={peer.name}
               color={peer.color}
               pulse={peer.isTyping}
-              title={[peer.name + (peer.isTyping ? " (typing…)" : ""), peer.browser, sinceConnected(peer.connectedAt)].filter(Boolean).join(" · ")}
-              onClick={() => setModal({ name: peer.name, color: peer.color, browser: peer.browser, connectedAt: peer.connectedAt, isTyping: peer.isTyping })}
+              title={[peer.name + (peer.isTyping ? " (typing…)" : ""), peer.browser, sinceConnected(peer.connectedAt)]
+                .filter(Boolean)
+                .join(" · ")}
+              onClick={() =>
+                setModal({
+                  name: peer.name,
+                  color: peer.color,
+                  browser: peer.browser,
+                  connectedAt: peer.connectedAt,
+                  isTyping: peer.isTyping,
+                })
+              }
             />
           )}
         </For>
@@ -244,6 +262,12 @@ export function AvatarBar() {
                 </div>
               )}
             </For>
+            <div class="border-t border-border-base mt-1 pt-1">
+              <div class="px-3 py-1 text-[10px] font-medium text-text-weak uppercase tracking-wide">
+                Recent Activity
+              </div>
+              <ActivityTimeline />
+            </div>
           </div>
         </Show>
       </div>
@@ -251,11 +275,7 @@ export function AvatarBar() {
       {/* Peer detail modal (long press) */}
       <Show when={modal()}>
         {(peer) => (
-          <PeerModal
-            peer={peer()}
-            onClose={() => setModal(null)}
-            onChangeName={() => setShowNameDialog(true)}
-          />
+          <PeerModal peer={peer()} onClose={() => setModal(null)} onChangeName={() => setShowNameDialog(true)} />
         )}
       </Show>
 
