@@ -146,7 +146,7 @@ beforeAll(async () => {
           add: (value: {
             directory?: string
             sessionID?: string
-            message: { agent: string; model: { providerID: string; modelID: string }; variant?: string }
+            message: { agent: string; model: { providerID: string; modelID: string; variant?: string } }
           }) => {
             optimistic.push(value)
             optimisticSeeded.push(
@@ -319,8 +319,7 @@ describe("prompt submit worktree selection", () => {
     expect(optimistic[0]).toMatchObject({
       message: {
         agent: "agent",
-        model: { providerID: "provider", modelID: "model" },
-        variant: "high",
+        model: { providerID: "provider", modelID: "model", variant: "high" },
       },
     })
   })
