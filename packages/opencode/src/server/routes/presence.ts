@@ -1,11 +1,10 @@
 import { Hono } from "hono"
 import { describeRoute, validator } from "hono-openapi"
-import { upgradeWebSocket } from "hono/bun"
+import type { UpgradeWebSocket } from "hono/ws"
 import z from "zod"
 import { Presence } from "@/presence"
 import { Bus } from "@/bus"
 import { Log } from "@/util/log"
-import { lazy } from "../../util/lazy"
 
 const log = Log.create({ service: "presence" })
 
@@ -67,8 +66,8 @@ function sendJSON(
   }
 }
 
-export const PresenceRoutes = lazy(() =>
-  new Hono().get(
+export function PresenceRoutes(upgradeWebSocket: UpgradeWebSocket) {
+  return new Hono().get(
     "/:sessionID",
     describeRoute({
       summary: "Connect to session presence",
@@ -297,5 +296,5 @@ export const PresenceRoutes = lazy(() =>
         },
       }
     }),
-  ),
-)
+  )
+}

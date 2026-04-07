@@ -56,7 +56,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, app: Hono = new Hono()
     .route("/provider", ProviderRoutes())
     .route("/", FileRoutes())
     .route("/", EventRoutes())
-    .route("/presence", PresenceRoutes())
+    .route("/presence", PresenceRoutes(upgrade))
     .route("/mcp", McpRoutes())
     .route("/tui", TuiRoutes())
     .post(
