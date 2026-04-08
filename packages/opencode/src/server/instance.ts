@@ -27,7 +27,7 @@ import { ConfigRoutes } from "./routes/config"
 import { ExperimentalRoutes } from "./routes/experimental"
 import { ProviderRoutes } from "./routes/provider"
 import { EventRoutes } from "./routes/event"
-import { PresenceRoutes } from "./routes/presence"
+
 import { errorHandler } from "./middleware"
 
 const log = Log.create({ service: "server" })
@@ -56,7 +56,6 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, app: Hono = new Hono()
     .route("/provider", ProviderRoutes())
     .route("/", FileRoutes())
     .route("/", EventRoutes())
-    .route("/presence", PresenceRoutes(upgrade))
     .route("/mcp", McpRoutes())
     .route("/tui", TuiRoutes())
     .post(
