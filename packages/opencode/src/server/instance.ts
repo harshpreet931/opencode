@@ -37,11 +37,16 @@ const embeddedUIPromise = Flag.OPENCODE_DISABLE_EMBEDDED_WEB_UI
   : // @ts-expect-error - generated file at build time
     import("opencode-web-ui.gen.ts").then((module) => module.default as Record<string, string>).catch(() => null)
 
-const DEFAULT_CSP =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:"
-
 const csp = (hash = "") =>
   `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
+
+const preload = /<script\b(?![^>]*\bsrc\s*=)[^>]*\bid=(['"])oc-theme-preload-script\1[^>]*>([\s\S]*?)<\/script>/i
+
+const inlineHash = (html: string) => {
+  const match = html.match(preload)
+  if (!match) return ""
+  return createHash("sha256").update(match[2]).digest("base64")
+}
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket, app: Hono = new Hono()) =>
   app
@@ -284,13 +289,16 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, app: Hono = new Hono()
       const path = c.req.path
 
       if (embeddedWebUI) {
-        const match = embeddedWebUI[path.replace(/^\//, "")] ?? embeddedWebUI["index.html"] ?? null
+        const key = path.replace(/^\//, "")
+        const match = embeddedWebUI[key] ?? (/\.[^/]+$/.test(key) ? null : (embeddedWebUI["index.html"] ?? null))
         if (!match) return c.json({ error: "Not Found" }, 404)
         const file = Bun.file(match)
         if (await file.exists()) {
           c.header("Content-Type", file.type)
           if (file.type.startsWith("text/html")) {
-            c.header("Content-Security-Policy", DEFAULT_CSP)
+            const html = await file.text()
+            c.header("Content-Security-Policy", csp(inlineHash(html)))
+            return c.html(html)
           }
           return c.body(await file.arrayBuffer())
         } else {
@@ -304,13 +312,11 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, app: Hono = new Hono()
             host: "app.opencode.ai",
           },
         })
-        const match = response.headers.get("content-type")?.includes("text/html")
-          ? (await response.clone().text()).match(
-              /<script\b(?![^>]*\bsrc\s*=)[^>]*\bid=(['"])oc-theme-preload-script\1[^>]*>([\s\S]*?)<\/script>/i,
-            )
-          : undefined
-        const hash = match ? createHash("sha256").update(match[2]).digest("base64") : ""
-        response.headers.set("Content-Security-Policy", csp(hash))
+        if (response.headers.get("content-type")?.includes("text/html")) {
+          const html = await response.clone().text()
+          response.headers.set("Content-Security-Policy", csp(inlineHash(html)))
+          return response
+        }
         return response
       }
     })
