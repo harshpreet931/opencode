@@ -13,6 +13,7 @@ import {
   ImageAttachmentPart,
   AgentPart,
   FileAttachmentPart,
+  PeerPart,
 } from "@/context/prompt"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
@@ -566,12 +567,46 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
+  const peerList = createMemo(() => {
+    const localPeer = presence.localPeer()
+    const remote = presence.mentionPeers().map((peer): AtOption => {
+      const meta = presence.mentionMeta(peer)
+      return {
+        type: "peer",
+        id: peer.id,
+        name: peer.name,
+        display: `${peer.name} ${meta.workspace ?? ""}`.trim(),
+        color: peer.color,
+        workspace: meta.workspace,
+        sessionID: meta.sessionID,
+        sameWorkspace: meta.sameWorkspace,
+      }
+    })
+    if (!localPeer) return remote
+    const meta = presence.mentionMeta(localPeer)
+    return [
+      {
+        type: "peer" as const,
+        id: localPeer.id,
+        name: localPeer.name,
+        display: localPeer.name,
+        color: localPeer.color,
+        local: true,
+        workspace: meta.workspace,
+        sessionID: meta.sessionID,
+        sameWorkspace: meta.sameWorkspace,
+      },
+      ...remote,
+    ]
+  })
   const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
 
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
     if (option.type === "agent") {
       addPart({ type: "agent", name: option.name, content: "@" + option.name, start: 0, end: 0 })
+    } else if (option.type === "peer") {
+      addPart({ type: "peer", id: option.id, name: option.name, content: "@" + option.name, start: 0, end: 0 })
     } else {
       addPart({ type: "file", path: option.path, content: "@" + option.path, start: 0, end: 0 })
     }
@@ -579,7 +614,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const atKey = (x: AtOption | undefined) => {
     if (!x) return ""
-    return x.type === "agent" ? `agent:${x.name}` : `file:${x.path}`
+    if (x.type === "agent") return `agent:${x.name}`
+    if (x.type === "peer") return `peer:${x.id}`
+    return `file:${x.path}`
   }
 
   const {
@@ -591,28 +628,31 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   } = useFilteredList<AtOption>({
     items: async (query) => {
       const agents = agentList()
+      const peers = peerList()
       const open = recent()
       const seen = new Set(open)
       const pinned: AtOption[] = open.map((path) => ({ type: "file", path, display: path, recent: true }))
-      if (!query.trim()) return [...agents, ...pinned]
+      if (!query.trim()) return [...peers, ...agents, ...pinned]
       const paths = await files.searchFilesAndDirectories(query)
       const fileOptions: AtOption[] = paths
         .filter((path) => !seen.has(path))
         .map((path) => ({ type: "file", path, display: path }))
-      return [...agents, ...pinned, ...fileOptions]
+      return [...peers, ...agents, ...pinned, ...fileOptions]
     },
     key: atKey,
     filterKeys: ["display"],
     groupBy: (item) => {
+      if (item.type === "peer") return "peer"
       if (item.type === "agent") return "agent"
       if (item.recent) return "recent"
       return "file"
     },
     sortGroupsBy: (a, b) => {
       const rank = (category: string) => {
-        if (category === "agent") return 0
-        if (category === "recent") return 1
-        return 2
+        if (category === "peer") return 0
+        if (category === "agent") return 1
+        if (category === "recent") return 2
+        return 3
       }
       return rank(a.category) - rank(b.category)
     },
@@ -675,12 +715,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSelect: handleSlashSelect,
   })
 
-  const createPill = (part: FileAttachmentPart | AgentPart) => {
+  const createPill = (part: FileAttachmentPart | AgentPart | PeerPart) => {
     const pill = document.createElement("span")
     pill.textContent = part.content
     pill.setAttribute("data-type", part.type)
     if (part.type === "file") pill.setAttribute("data-path", part.path)
     if (part.type === "agent") pill.setAttribute("data-name", part.name)
+    if (part.type === "peer") {
+      pill.setAttribute("data-id", part.id)
+      pill.setAttribute("data-name", part.name)
+    }
     pill.setAttribute("contenteditable", "false")
     pill.style.userSelect = "text"
     pill.style.cursor = "default"
@@ -703,6 +747,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       const el = node as HTMLElement
       if (el.dataset.type === "file") return true
       if (el.dataset.type === "agent") return true
+      if (el.dataset.type === "peer") return true
       return el.tagName === "BR"
     })
 
@@ -713,7 +758,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         editorRef.appendChild(createTextFragment(part.content))
         continue
       }
-      if (part.type === "file" || part.type === "agent") {
+      if (part.type === "file" || part.type === "agent" || part.type === "peer") {
         editorRef.appendChild(createPill(part))
       }
     }
@@ -850,6 +895,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         pushAgent(el)
         return
       }
+      if (el.dataset.type === "peer") {
+        flushText()
+        parts.push({
+          type: "peer",
+          id: el.dataset.id!,
+          name: el.dataset.name!,
+          content: el.textContent ?? "",
+          start: position,
+          end: position + (el.textContent ?? "").length,
+        })
+        position += (el.textContent ?? "").length
+        return
+      }
       if (el.tagName === "BR") {
         buffer += "\n"
         return
@@ -973,7 +1031,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const range = selection.getRangeAt(0)
     if (!editorRef.contains(range.startContainer)) return false
 
-    if (part.type === "file" || part.type === "agent") {
+    if (part.type === "file" || part.type === "agent" || part.type === "peer") {
       const cursorPosition = getCursorPosition(editorRef)
       const rawText = prompt
         .current()
@@ -1402,6 +1460,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 "w-full pl-3 pr-2 pt-2 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
+                "[&_[data-type=peer]]:text-status-info": true,
                 "font-mono!": store.mode === "shell",
               }}
               style={{ "padding-bottom": space }}

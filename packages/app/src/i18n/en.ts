@@ -509,6 +509,8 @@ export const dict = {
   "notification.permission.description": "{{sessionTitle}} in {{projectName}} needs permission",
   "notification.question.title": "Question",
   "notification.question.description": "{{sessionTitle}} in {{projectName}} has a question",
+  "notification.mention.title": "{{name}} mentioned you",
+  "notification.mention.description": "{{text}}",
   "notification.action.goToSession": "Go to session",
 
   "notification.session.responseReady.title": "Response ready",
@@ -623,6 +625,8 @@ export const dict = {
   "lsp.label.connected": "{{count}} LSP",
 
   "prompt.loading": "Loading prompt...",
+  "prompt.popover.you": "you",
+  "prompt.popover.otherSession": "other session",
   "terminal.loading": "Loading terminal...",
   "terminal.title": "Terminal",
   "terminal.title.numbered": "Terminal {{number}}",

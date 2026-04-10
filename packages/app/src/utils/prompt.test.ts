@@ -41,4 +41,24 @@ describe("extractPromptFromParts", () => {
       { type: "image", filename: "b.pdf", mime: "application/pdf", dataUrl: "data:application/pdf;base64,BBB" },
     ])
   })
+
+  test("restores peer mentions from text metadata", () => {
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "ping @Bob",
+        metadata: {
+          mentions: [{ id: "peer_2", name: "Bob", start: 5, end: 9, value: "@Bob" }],
+        },
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    expect(extractPromptFromParts(parts)).toEqual([
+      { type: "text", content: "ping ", start: 0, end: 5 },
+      { type: "peer", id: "peer_2", name: "Bob", content: "@Bob", start: 5, end: 9 },
+    ])
+  })
 })

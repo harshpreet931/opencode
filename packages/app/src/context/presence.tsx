@@ -1,9 +1,17 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useParams } from "@solidjs/router"
 import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
+import { useLanguage } from "./language"
+import { usePlatform } from "./platform"
+import { useSettings } from "./settings"
 import { useServer } from "./server"
 import { decode64 } from "@/utils/base64"
+import { playSoundById } from "@/utils/sound"
+import { handleNotificationClick } from "@/utils/notification-click"
+import { getFilename } from "@opencode-ai/util/path"
+import { base64Encode } from "@opencode-ai/util/encode"
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -25,6 +33,9 @@ export interface PeerInfo {
   cursor?: CursorState
   isTyping: boolean
   browser?: string
+  scope?: "session" | "directory" | "global"
+  directory?: string
+  session_id?: string
 }
 
 export interface PeerInputSnapshot {
@@ -48,7 +59,14 @@ export interface RecentStop {
   time: number
 }
 
-export type ActivityType = "join" | "leave" | "typing" | "cursor" | "file" | "message"
+export interface MentionEvent {
+  from: PeerInfo
+  text: string
+  messageID?: string
+  time: number
+}
+
+export type ActivityType = "join" | "leave" | "typing" | "cursor" | "file" | "message" | "mention"
 
 export interface ActivityEvent {
   type: ActivityType
@@ -60,6 +78,7 @@ export interface ActivityEvent {
     area?: CursorArea
     file?: string
     messageID?: string
+    text?: string
   }
 }
 
@@ -74,6 +93,7 @@ type ServerMessage =
   | { type: "peer.typing"; peerID: string; isTyping: boolean }
   | { type: "peer.mouse"; peerID: string; x: number; y: number }
   | { type: "peer.name"; peerID: string; name: string; color?: string }
+  | { type: "peer.mention"; peerID: string; from: PeerInfo; text: string; messageID?: string; sessionID?: string }
   | { type: "pong" }
 
 // ── Client Messages ───────────────────────────────────────
@@ -91,6 +111,7 @@ type ClientMessage =
   | { type: "typing"; isTyping: boolean }
   | { type: "mouse"; x: number; y: number }
   | { type: "name"; name: string; color?: string }
+  | { type: "mention"; peerID: string; text: string; messageID?: string; sessionID?: string }
   | { type: "ping" }
 
 // ── Constants ─────────────────────────────────────────────
@@ -126,18 +147,36 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
   gate: false,
   init: () => {
     const params = useParams()
+    const language = useLanguage()
+    const platform = usePlatform()
+    const settings = useSettings()
     const server = useServer()
 
-    const [localPeer, setLocalPeer] = createSignal<PeerInfo | null>(null)
+    const [sessionLocal, setSessionLocal] = createSignal<PeerInfo | null>(null)
+    const [directoryLocal, setDirectoryLocal] = createSignal<PeerInfo | null>(null)
+    const [globalLocal, setGlobalLocal] = createSignal<PeerInfo | null>(null)
     const [store, setStore] = createStore<{ peers: Record<string, PeerState> }>({ peers: {} })
+    const [directoryStore, setDirectoryStore] = createStore<{ peers: Record<string, PeerState> }>({ peers: {} })
+    const [globalStore, setGlobalStore] = createStore<{ peers: Record<string, PeerState> }>({ peers: {} })
     const [connected, setConnected] = createSignal(false)
+    const [directoryConnected, setDirectoryConnected] = createSignal(false)
+    const [globalConnected, setGlobalConnected] = createSignal(false)
     const [recentStops, setRecentStops] = createSignal<RecentStop[]>([])
     const [activities, setActivities] = createSignal<ActivityEvent[]>([])
+    const [mentions, setMentions] = createSignal<MentionEvent[]>([])
 
     let ws: WebSocket | null = null
+    let directoryWs: WebSocket | null = null
+    let globalWs: WebSocket | null = null
     let pingTimer: ReturnType<typeof setInterval> | undefined
+    let directoryPingTimer: ReturnType<typeof setInterval> | undefined
+    let globalPingTimer: ReturnType<typeof setInterval> | undefined
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    let directoryReconnectTimer: ReturnType<typeof setTimeout> | undefined
+    let globalReconnectTimer: ReturnType<typeof setTimeout> | undefined
     let reconnectDelay = RECONNECT_DELAY_MS
+    let directoryReconnectDelay = RECONNECT_DELAY_MS
+    let globalReconnectDelay = RECONNECT_DELAY_MS
     let lastCursorSend = 0
     let lastInputSend = 0
     let lastMouseSend = 0
@@ -168,9 +207,60 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       })
     }
 
+    function noteMention(msg: Extract<ServerMessage, { type: "peer.mention" }>) {
+      const now = Date.now()
+      setMentions((prev) =>
+        [{ from: msg.from, text: msg.text, messageID: msg.messageID, time: now }, ...prev].slice(0, 20),
+      )
+      logActivity("mention", msg.from.id, { ...msg.from }, { messageID: msg.messageID, text: msg.text })
+      const href =
+        msg.sessionID && msg.from.directory
+          ? `/${base64Encode(msg.from.directory)}/session/${msg.sessionID}`
+          : undefined
+      const title = language.t("notification.mention.title", { name: msg.from.name })
+      const description = language.t("notification.mention.description", { text: msg.text })
+      showToast({
+        title,
+        description,
+        actions: href
+          ? [
+              {
+                label: language.t("notification.action.goToSession"),
+                onClick: () => handleNotificationClick(href),
+              },
+              {
+                label: language.t("common.dismiss"),
+                onClick: "dismiss",
+              },
+            ]
+          : undefined,
+      })
+      if (settings.sounds.agentEnabled()) {
+        void playSoundById(settings.sounds.agent())
+      }
+      if (settings.notifications.agent() && href) {
+        void platform.notify(title, description, href, { force: true })
+      }
+    }
+
+    function resolveLocal(peer: PeerInfo, send: (msg: ClientMessage) => void) {
+      const savedName = localStorage.getItem(PRESENCE_NAME_KEY)
+      const savedColor = localStorage.getItem(PRESENCE_COLOR_KEY)
+      const finalName = savedName || peer.name
+      const finalColor = savedColor || peer.color
+      if (!savedName) localStorage.setItem(PRESENCE_NAME_KEY, peer.name)
+      if (!savedColor) localStorage.setItem(PRESENCE_COLOR_KEY, peer.color)
+      const nameDiffers = savedName && savedName !== peer.name
+      const colorDiffers = savedColor && savedColor !== peer.color
+      if (nameDiffers || colorDiffers) {
+        send({ type: "name", name: finalName, color: finalColor })
+      }
+      return { ...peer, name: finalName, color: finalColor }
+    }
+
     // ── WebSocket URL ──
 
-    function wsUrl(sessionID: string): string {
+    function wsUrl(sessionID: string, scope: "session" | "directory" | "global" = "session"): string {
       const http = server.current?.http
       if (!http) throw new Error("No server connection")
       const base = new URL(http.url)
@@ -184,6 +274,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       if (directory) {
         base.searchParams.set("directory", directory)
       }
+      base.searchParams.set("scope", scope)
       const savedName = localStorage.getItem(PRESENCE_NAME_KEY)
       if (savedName) {
         base.searchParams.set("name", savedName)
@@ -207,7 +298,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
 
       let url: string
       try {
-        url = wsUrl(sessionID)
+        url = wsUrl(sessionID, "session")
         console.log("[presence] connecting to", url)
         ws = new WebSocket(url)
       } catch (e) {
@@ -249,12 +340,109 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       }
     }
 
+    function connectDirectory() {
+      const dir = decode64(params.dir)
+      if (!dir || !server.current) return
+
+      let url: string
+      try {
+        url = wsUrl(`__directory__:${dir}`, "directory")
+        directoryWs = new WebSocket(url)
+      } catch {
+        scheduleDirectoryReconnect()
+        return
+      }
+
+      directoryWs.onopen = () => {
+        setDirectoryConnected(true)
+        directoryReconnectDelay = RECONNECT_DELAY_MS
+        directoryPingTimer = setInterval(() => {
+          sendDirectoryMessage({ type: "ping" })
+        }, PING_INTERVAL_MS)
+      }
+
+      directoryWs.onmessage = (event) => {
+        let msg: ServerMessage
+        try {
+          msg = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        handleDirectoryMessage(msg)
+      }
+
+      directoryWs.onclose = () => {
+        cleanupDirectory()
+        scheduleDirectoryReconnect()
+      }
+
+      directoryWs.onerror = () => {
+        cleanupDirectory()
+        scheduleDirectoryReconnect()
+      }
+    }
+
+    function connectGlobal() {
+      if (!server.current) return
+
+      let url: string
+      try {
+        url = wsUrl("__global__", "global")
+        globalWs = new WebSocket(url)
+      } catch {
+        scheduleGlobalReconnect()
+        return
+      }
+
+      globalWs.onopen = () => {
+        setGlobalConnected(true)
+        globalReconnectDelay = RECONNECT_DELAY_MS
+        globalPingTimer = setInterval(() => {
+          sendGlobalMessage({ type: "ping" })
+        }, PING_INTERVAL_MS)
+      }
+
+      globalWs.onmessage = (event) => {
+        let msg: ServerMessage
+        try {
+          msg = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        handleGlobalMessage(msg)
+      }
+
+      globalWs.onclose = () => {
+        cleanupGlobal()
+        scheduleGlobalReconnect()
+      }
+
+      globalWs.onerror = () => {
+        cleanupGlobal()
+        scheduleGlobalReconnect()
+      }
+    }
+
     function cleanup() {
       console.log("[presence] cleanup called, setting connected=false")
       setConnected(false)
       if (pingTimer) clearInterval(pingTimer)
       pingTimer = undefined
       ws = null
+    }
+
+    function cleanupDirectory() {
+      setDirectoryConnected(false)
+      if (directoryPingTimer) clearInterval(directoryPingTimer)
+      directoryPingTimer = undefined
+      directoryWs = null
+    }
+
+    function cleanupGlobal() {
+      setGlobalConnected(false)
+      if (globalPingTimer) clearInterval(globalPingTimer)
+      globalPingTimer = undefined
+      globalWs = null
     }
 
     function disconnect() {
@@ -275,10 +463,38 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
         ws.close()
       }
       cleanup()
-      setLocalPeer(null)
+      setSessionLocal(null)
       setRecentStops([])
       setStore("peers", reconcile({}))
       console.log("[presence] disconnect done, peers cleared")
+    }
+
+    function disconnectDirectory() {
+      if (directoryReconnectTimer) clearTimeout(directoryReconnectTimer)
+      directoryReconnectTimer = undefined
+      if (directoryWs) {
+        directoryWs.onclose = null
+        directoryWs.onmessage = null
+        directoryWs.onerror = null
+        directoryWs.close()
+      }
+      cleanupDirectory()
+      setDirectoryLocal(null)
+      setDirectoryStore("peers", reconcile({}))
+    }
+
+    function disconnectGlobal() {
+      if (globalReconnectTimer) clearTimeout(globalReconnectTimer)
+      globalReconnectTimer = undefined
+      if (globalWs) {
+        globalWs.onclose = null
+        globalWs.onmessage = null
+        globalWs.onerror = null
+        globalWs.close()
+      }
+      cleanupGlobal()
+      setGlobalLocal(null)
+      setGlobalStore("peers", reconcile({}))
     }
 
     function scheduleReconnect() {
@@ -290,6 +506,24 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       }, reconnectDelay)
     }
 
+    function scheduleDirectoryReconnect() {
+      if (directoryReconnectTimer) return
+      directoryReconnectTimer = setTimeout(() => {
+        directoryReconnectTimer = undefined
+        directoryReconnectDelay = Math.min(directoryReconnectDelay * 1.5, MAX_RECONNECT_DELAY_MS)
+        connectDirectory()
+      }, directoryReconnectDelay)
+    }
+
+    function scheduleGlobalReconnect() {
+      if (globalReconnectTimer) return
+      globalReconnectTimer = setTimeout(() => {
+        globalReconnectTimer = undefined
+        globalReconnectDelay = Math.min(globalReconnectDelay * 1.5, MAX_RECONNECT_DELAY_MS)
+        connectGlobal()
+      }, globalReconnectDelay)
+    }
+
     // ── Message Handling ──
 
     function handleMessage(msg: ServerMessage) {
@@ -298,20 +532,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
 
       switch (msg.type) {
         case "welcome": {
-          const savedName = localStorage.getItem(PRESENCE_NAME_KEY)
-          const savedColor = localStorage.getItem(PRESENCE_COLOR_KEY)
-
-          const finalName = savedName || msg.peer.name
-          const finalColor = savedColor || msg.peer.color
-
-          if (!savedName) localStorage.setItem(PRESENCE_NAME_KEY, msg.peer.name)
-          if (!savedColor) localStorage.setItem(PRESENCE_COLOR_KEY, msg.peer.color)
-
-          const nameDiffers = savedName && savedName !== msg.peer.name
-          const colorDiffers = savedColor && savedColor !== msg.peer.color
-          if (nameDiffers || colorDiffers) {
-            sendMessage({ type: "name", name: finalName, color: finalColor })
-          }
+          const peer = resolveLocal(msg.peer, sendMessage)
 
           console.log("[presence] welcome received", {
             sessionID: currentSessionID,
@@ -320,7 +541,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
             peerNames: msg.peers.map((p) => p.name),
           })
 
-          setLocalPeer({ ...msg.peer, name: finalName, color: finalColor })
+          setSessionLocal(peer)
           batch(() => {
             const peers: Record<string, PeerState> = {}
             for (const p of msg.peers) {
@@ -396,6 +617,96 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
           }))
           break
         }
+        case "peer.mention": {
+          noteMention(msg)
+          break
+        }
+        case "pong": {
+          break
+        }
+      }
+    }
+
+    function handleDirectoryMessage(msg: ServerMessage) {
+      switch (msg.type) {
+        case "welcome": {
+          const peer = resolveLocal(msg.peer, sendDirectoryMessage)
+          setDirectoryLocal(peer)
+          const peers: Record<string, PeerState> = {}
+          for (const p of msg.peers) {
+            if (p.id !== msg.peer.id) {
+              peers[p.id] = { ...p, input: undefined }
+            }
+          }
+          setDirectoryStore("peers", reconcile(peers))
+          break
+        }
+        case "peer.joined": {
+          setDirectoryStore("peers", msg.peer.id, { ...msg.peer, input: undefined })
+          break
+        }
+        case "peer.left": {
+          setDirectoryStore(
+            produce((s) => {
+              delete s.peers[msg.peerID]
+            }),
+          )
+          break
+        }
+        case "peer.name": {
+          setDirectoryStore("peers", msg.peerID, (peer) => ({
+            ...peer,
+            ...(msg.name !== undefined && { name: msg.name }),
+            ...(msg.color !== undefined && { color: msg.color }),
+          }))
+          break
+        }
+        case "peer.mention": {
+          noteMention(msg)
+          break
+        }
+        case "pong": {
+          break
+        }
+      }
+    }
+
+    function handleGlobalMessage(msg: ServerMessage) {
+      switch (msg.type) {
+        case "welcome": {
+          const peer = resolveLocal(msg.peer, sendGlobalMessage)
+          setGlobalLocal(peer)
+          const peers: Record<string, PeerState> = {}
+          for (const p of msg.peers) {
+            if (p.id !== msg.peer.id) peers[p.id] = { ...p, input: undefined }
+          }
+          setGlobalStore("peers", reconcile(peers))
+          break
+        }
+        case "peer.joined": {
+          setGlobalStore("peers", msg.peer.id, { ...msg.peer, input: undefined })
+          break
+        }
+        case "peer.left": {
+          setGlobalStore(
+            produce((s) => {
+              delete s.peers[msg.peerID]
+            }),
+          )
+          break
+        }
+        case "peer.name": {
+          setGlobalStore("peers", msg.peerID, (peer) => ({
+            ...peer,
+            ...(msg.name !== undefined && { name: msg.name }),
+            ...(msg.color !== undefined && { color: msg.color }),
+          }))
+          break
+        }
+        case "peer.mention": {
+          noteMention(msg)
+          break
+        }
         case "pong": {
           break
         }
@@ -408,6 +719,24 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       if (!ws || ws.readyState !== WebSocket.OPEN) return
       try {
         ws.send(JSON.stringify(msg))
+      } catch {
+        // connection closing
+      }
+    }
+
+    function sendDirectoryMessage(msg: ClientMessage) {
+      if (!directoryWs || directoryWs.readyState !== WebSocket.OPEN) return
+      try {
+        directoryWs.send(JSON.stringify(msg))
+      } catch {
+        // connection closing
+      }
+    }
+
+    function sendGlobalMessage(msg: ClientMessage) {
+      if (!globalWs || globalWs.readyState !== WebSocket.OPEN) return
+      try {
+        globalWs.send(JSON.stringify(msg))
       } catch {
         // connection closing
       }
@@ -473,13 +802,31 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       sendMessage({ type: "typing", isTyping })
     }
 
+    function sendMention(peerID: string, text: string, messageID?: string) {
+      if (!peerID || !text.trim()) return
+      const msg: ClientMessage = { type: "mention", peerID, text, messageID, sessionID: params.id }
+      if (globalWs?.readyState === WebSocket.OPEN) {
+        sendGlobalMessage(msg)
+        return
+      }
+      if (directoryWs?.readyState === WebSocket.OPEN) {
+        sendDirectoryMessage(msg)
+        return
+      }
+      sendMessage(msg)
+    }
+
     function setName(name: string, color?: string) {
       const trimmed = name.trim()
       if (!trimmed) return
       localStorage.setItem(PRESENCE_NAME_KEY, trimmed)
       if (color) localStorage.setItem(PRESENCE_COLOR_KEY, color)
       sendMessage({ type: "name", name: trimmed, color })
-      setLocalPeer((prev) => (prev ? { ...prev, name: trimmed, ...(color && { color }) } : null))
+      sendDirectoryMessage({ type: "name", name: trimmed, color })
+      sendGlobalMessage({ type: "name", name: trimmed, color })
+      setSessionLocal((prev) => (prev ? { ...prev, name: trimmed, ...(color && { color }) } : null))
+      setDirectoryLocal((prev) => (prev ? { ...prev, name: trimmed, ...(color && { color }) } : null))
+      setGlobalLocal((prev) => (prev ? { ...prev, name: trimmed, ...(color && { color }) } : null))
     }
 
     function setColor(color: string) {
@@ -488,8 +835,12 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       const currentName = localPeer()?.name
       if (currentName) {
         sendMessage({ type: "name", name: currentName, color })
+        sendDirectoryMessage({ type: "name", name: currentName, color })
+        sendGlobalMessage({ type: "name", name: currentName, color })
       }
-      setLocalPeer((prev) => (prev ? { ...prev, color } : null))
+      setSessionLocal((prev) => (prev ? { ...prev, color } : null))
+      setDirectoryLocal((prev) => (prev ? { ...prev, color } : null))
+      setGlobalLocal((prev) => (prev ? { ...prev, color } : null))
     }
 
     const hasName = () => !!localStorage.getItem(PRESENCE_NAME_KEY)
@@ -560,7 +911,7 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
         if (prev) {
           console.log("[presence] cleaning up previous session:", prev)
           setStore("peers", reconcile({}))
-          setLocalPeer(null)
+          setSessionLocal(null)
           console.log("[presence] cleared peers and localPeer, calling disconnect")
           disconnect()
           console.log("[presence] disconnect completed")
@@ -572,7 +923,26 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       }),
     )
 
-    onCleanup(disconnect)
+    createEffect(
+      on(
+        () => decode64(params.dir),
+        (dir, prev) => {
+          if (prev) disconnectDirectory()
+          if (dir) connectDirectory()
+        },
+      ),
+    )
+
+    createEffect(() => {
+      if (!server.current) return
+      connectGlobal()
+    })
+
+    onCleanup(() => {
+      disconnect()
+      disconnectDirectory()
+      disconnectGlobal()
+    })
 
     // ── Public API ──
 
@@ -581,7 +951,28 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       console.log("[presence] peers memo evaluated:", { count: result.length, names: result.map((p) => p.name) })
       return result
     })
+    const directoryPeers = createMemo(() => Object.values(directoryStore.peers))
+    const globalPeers = createMemo(() => Object.values(globalStore.peers))
+    const mentionPeers = createMemo(() => {
+      const global = globalPeers()
+      if (globalConnected() || global.length > 0) return global
+      const result = directoryPeers()
+      if (directoryConnected() || result.length > 0) return result
+      return peers()
+    })
     const peerCount = createMemo(() => Object.keys(store.peers).length)
+    const localPeer = createMemo(() => sessionLocal() ?? directoryLocal() ?? globalLocal())
+
+    const mentionMeta = (peer: PeerInfo) => {
+      const local = decode64(params.dir)
+      const sameWorkspace = !!peer.directory && !!local && peer.directory === local
+      const workspace = peer.directory ? getFilename(peer.directory) : undefined
+      return {
+        workspace,
+        sameWorkspace,
+        sessionID: peer.session_id,
+      }
+    }
 
     const localPeerFallback = () => {
       const p = localPeer()
@@ -598,14 +989,22 @@ export const { use: usePresence, provider: PresenceProvider } = createSimpleCont
       localPeer,
       localPeerFallback,
       peers,
+      directoryPeers,
+      globalPeers,
+      mentionPeers,
+      mentionMeta,
       peerCount,
       connected,
+      directoryConnected,
+      globalConnected,
       recentStops,
       activities,
+      mentions,
       peer: (id: string) => store.peers[id] as PeerState | undefined,
       sendCursor,
       sendInput,
       sendTyping,
+      sendMention,
       sendMouse,
       setName,
       setColor,

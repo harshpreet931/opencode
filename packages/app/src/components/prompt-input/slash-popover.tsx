@@ -5,6 +5,17 @@ import { getDirectory, getFilename } from "@opencode-ai/util/path"
 
 export type AtOption =
   | { type: "agent"; name: string; display: string }
+  | {
+      type: "peer"
+      id: string
+      name: string
+      display: string
+      color: string
+      local?: boolean
+      workspace?: string
+      sessionID?: string
+      sameWorkspace?: boolean
+    }
   | { type: "file"; path: string; display: string; recent?: boolean }
 
 export interface SlashCommand {
@@ -65,6 +76,34 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                       >
                         <Icon name="brain" size="small" class="text-icon-info-active shrink-0" />
                         <span class="text-14-regular text-text-strong whitespace-nowrap">@{item.name}</span>
+                      </button>
+                    )
+                  }
+
+                  if (item.type === "peer") {
+                    return (
+                      <button
+                        class="w-full flex items-center gap-x-2 rounded-md px-2 py-0.5"
+                        classList={{ "bg-surface-raised-base-hover": props.atActive === key }}
+                        onClick={() => props.onAtSelect(item)}
+                        onMouseEnter={() => props.setAtActive(key)}
+                      >
+                        <span
+                          class="size-4 rounded-full shrink-0"
+                          style={{ "background-color": item.color }}
+                          aria-hidden="true"
+                        />
+                        <span class="text-14-regular text-text-strong whitespace-nowrap truncate">@{item.name}</span>
+                        <Show when={item.local}>
+                          <span class="text-11-regular text-text-weak">{props.t("prompt.popover.you")}</span>
+                        </Show>
+                        <Show when={!item.local && item.workspace}>
+                          <span class="text-11-regular text-text-weak truncate">
+                            {item.sameWorkspace
+                              ? item.workspace
+                              : `${item.workspace} ${item.sessionID ? `· ${props.t("prompt.popover.otherSession")}` : ""}`}
+                          </span>
+                        </Show>
                       </button>
                     )
                   }

@@ -2,7 +2,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { type AgentPartInput, type FilePartInput, type Part, type TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, PeerPart, Prompt } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 
@@ -25,6 +25,14 @@ export type PeerInfo = {
   color: string
 }
 
+export type MentionInfo = {
+  id: string
+  name: string
+  start: number
+  end: number
+  value: string
+}
+
 type BuildRequestPartsInput = {
   prompt: Prompt
   context: ContextFile[]
@@ -35,6 +43,32 @@ type BuildRequestPartsInput = {
   sessionDirectory: string
   sendMode?: "agent" | "chat"
   peer?: PeerInfo
+  peers?: PeerInfo[]
+}
+
+export const mentionValue = (name: string) => `@${name}`
+
+const isPeerAttachment = (part: Prompt[number]): part is PeerPart => part.type === "peer"
+
+const matchPeer = (part: PeerPart, peers: PeerInfo[]) => {
+  const hit = peers.find((peer) => peer.id === part.id)
+  if (hit) return hit
+  const name = part.name.trim().toLowerCase()
+  return peers.find((peer) => peer.name.trim().toLowerCase() === name)
+}
+
+export function buildMentions(prompt: Prompt, peers: PeerInfo[]) {
+  return prompt.filter(isPeerAttachment).map((part) => {
+    const peer = matchPeer(part, peers)
+    const name = peer?.name ?? part.name
+    return {
+      id: peer?.id ?? part.id,
+      name,
+      start: part.start,
+      end: part.end,
+      value: part.content,
+    } satisfies MentionInfo
+  })
 }
 
 const absolute = (directory: string, path: string) => {
@@ -98,11 +132,15 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
 
 export function buildRequestParts(input: BuildRequestPartsInput) {
   const metadata: Record<string, unknown> = {}
+  const mentions = buildMentions(input.prompt, input.peers ?? []).filter((item) => item.id !== input.peer?.id)
   if (input.peer) {
     metadata.peer = { id: input.peer.id, name: input.peer.name, color: input.peer.color }
   }
   if (input.sendMode === "chat") {
     metadata.sendMode = "chat"
+  }
+  if (mentions.length > 0) {
+    metadata.mentions = mentions
   }
   const requestParts: PromptRequestPart[] = [
     {

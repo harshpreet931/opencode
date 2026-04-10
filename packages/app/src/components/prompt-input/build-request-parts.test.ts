@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
-import { buildRequestParts } from "./build-request-parts"
+import { buildMentions, buildRequestParts } from "./build-request-parts"
 
 describe("buildRequestParts", () => {
   test("builds typed request and optimistic parts without cast path", () => {
@@ -358,6 +358,42 @@ describe("buildRequestParts", () => {
         color: "#FF6B6B",
       })
     }
+  })
+
+  test("captures peer mentions in metadata", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "ping ", start: 0, end: 5 },
+      { type: "peer", id: "peer_2", name: "Bob", content: "@Bob", start: 5, end: 9 },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "ping @Bob",
+      messageID: "msg_mentions",
+      sessionID: "ses_mentions",
+      sessionDirectory: "/repo",
+      peers: [
+        { id: "peer_1", name: "Alice", color: "#FF6B6B" },
+        { id: "peer_2", name: "Bob", color: "#4ECDC4" },
+      ],
+      peer: { id: "peer_1", name: "Alice", color: "#FF6B6B" },
+    })
+
+    const textPart = result.requestParts.find((part) => part.type === "text")
+    expect(textPart?.type).toBe("text")
+    if (textPart?.type === "text") {
+      expect(textPart.metadata?.mentions).toEqual([{ id: "peer_2", name: "Bob", start: 5, end: 9, value: "@Bob" }])
+    }
+  })
+
+  test("resolves peer mentions by name when ids change", () => {
+    const prompt: Prompt = [{ type: "peer", id: "stale", name: "Bob", content: "@Bob", start: 0, end: 4 }]
+
+    expect(buildMentions(prompt, [{ id: "peer_2", name: "Bob", color: "#4ECDC4" }])).toEqual([
+      { id: "peer_2", name: "Bob", start: 0, end: 4, value: "@Bob" },
+    ])
   })
 
   test("includes peer info with chat mode sendMode", () => {

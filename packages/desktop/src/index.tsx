@@ -308,14 +308,14 @@ const createPlatform = (): Platform => {
       await relaunch()
     },
 
-    notify: async (title, description, href) => {
+    notify: async (title, description, href, opts) => {
       const granted = await isPermissionGranted().catch(() => false)
       const permission = granted ? "granted" : await requestPermission().catch(() => "denied")
       if (permission !== "granted") return
 
       const win = getCurrentWindow()
       const focused = await win.isFocused().catch(() => document.hasFocus())
-      if (focused) return
+      if (focused && !opts?.force) return
 
       await Promise.resolve()
         .then(() => {

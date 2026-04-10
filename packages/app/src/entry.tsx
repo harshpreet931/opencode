@@ -6,6 +6,7 @@ import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
+import { base64Encode } from "@opencode-ai/util/encode"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
 
@@ -52,7 +53,15 @@ const setStorage = (key: string, value: string | null) => {
 const readDefaultServerUrl = () => getStorage(DEFAULT_SERVER_URL_KEY)
 const writeDefaultServerUrl = (url: string | null) => setStorage(DEFAULT_SERVER_URL_KEY, url)
 
-const notify: Platform["notify"] = async (title, description, href) => {
+const serviceWorker = (() => {
+  if (!("serviceWorker" in navigator)) return Promise.resolve(undefined)
+  if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+    return Promise.resolve(undefined)
+  }
+  return navigator.serviceWorker.register("/notification-sw.js").catch(() => undefined)
+})()
+
+const notify: Platform["notify"] = async (title, description, href, opts) => {
   if (!("Notification" in window)) return
 
   const permission =
@@ -63,7 +72,21 @@ const notify: Platform["notify"] = async (title, description, href) => {
   if (permission !== "granted") return
 
   const inView = document.visibilityState === "visible" && document.hasFocus()
-  if (inView) return
+  if (inView && !opts?.force) return
+
+  const reg = await serviceWorker
+  if (reg?.showNotification) {
+    await reg
+      .showNotification(title, {
+        body: description ?? "",
+        icon: "https://opencode.ai/favicon-96x96-v3.png",
+        badge: "https://opencode.ai/favicon-96x96-v3.png",
+        data: { href },
+        tag: `opencode:${Date.now()}`,
+      })
+      .catch(() => undefined)
+    return
+  }
 
   const notification = new Notification(title, {
     body: description ?? "",

@@ -33,6 +33,9 @@ export namespace Presence {
       cursor: CursorState.optional(),
       isTyping: z.boolean(),
       browser: z.string().optional(),
+      scope: z.enum(["session", "directory", "global"]).optional(),
+      directory: z.string().optional(),
+      session_id: z.string().optional(),
     })
     .meta({ ref: "PresencePeer" })
   export type PeerInfo = z.infer<typeof PeerInfo>
@@ -68,6 +71,16 @@ export namespace Presence {
         cursor: CursorState.optional(),
         input: InputSnapshot.optional(),
         isTyping: z.boolean().optional(),
+      }),
+    ),
+    PeerMentioned: BusEvent.define(
+      "presence.peer.mentioned",
+      z.object({
+        sessionID: z.string(),
+        from: PeerInfo,
+        to: PeerInfo,
+        text: z.string(),
+        messageID: z.string().optional(),
       }),
     ),
   }
@@ -146,7 +159,17 @@ export namespace Presence {
 
   // ── Public API ──────────────────────────────────────────
 
-  export function join(sessionID: string, socket: Socket, opts?: { name?: string; color?: string; browser?: string }): PeerConnection {
+  export function join(
+    sessionID: string,
+    socket: Socket,
+    opts?: {
+      name?: string
+      color?: string
+      browser?: string
+      scope?: "session" | "directory" | "global"
+      directory?: string
+    },
+  ): PeerConnection {
     const session = getSession(sessionID)
     const id = crypto.randomUUID()
     const peer: PeerInfo = {
@@ -156,6 +179,9 @@ export namespace Presence {
       connectedAt: Date.now(),
       isTyping: false,
       browser: opts?.browser,
+      scope: opts?.scope,
+      directory: opts?.directory,
+      session_id: opts?.scope === "session" ? sessionID : undefined,
     }
     const conn: PeerConnection = {
       info: peer,
@@ -184,6 +210,12 @@ export namespace Presence {
     return Array.from(session.peers.values()).map((c) => c.info)
   }
 
+  export function getPeer(sessionID: string, peerID: string) {
+    const session = sessions.get(sessionID)
+    if (!session) return
+    return session.peers.get(peerID)?.info
+  }
+
   export function getPeerInput(sessionID: string, peerID: string): InputSnapshot | undefined {
     const session = sessions.get(sessionID)
     if (!session) return
@@ -207,6 +239,26 @@ export namespace Presence {
       }
     }
     cleanupSession(sessionID)
+  }
+
+  export function send(sessionID: string, peerID: string, message: string) {
+    const session = sessions.get(sessionID)
+    if (!session) return false
+    const conn = session.peers.get(peerID)
+    if (!conn) return false
+    if (conn.socket.readyState !== 1) {
+      session.peers.delete(peerID)
+      cleanupSession(sessionID)
+      return false
+    }
+    try {
+      conn.socket.send(message)
+      return true
+    } catch {
+      session.peers.delete(peerID)
+      cleanupSession(sessionID)
+      return false
+    }
   }
 
   /** Update a peer's state */

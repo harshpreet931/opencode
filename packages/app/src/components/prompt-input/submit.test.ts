@@ -20,6 +20,7 @@ const storedSessions: Record<string, Array<{ id: string; title?: string }>> = {}
 const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
+const sentMentions: Array<{ peerID: string; text: string; messageID?: string }> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
@@ -188,6 +189,7 @@ beforeAll(async () => {
   mock.module("@/context/platform", () => ({
     usePlatform: () => ({
       fetch: fetch,
+      notify: async () => undefined,
     }),
   }))
 
@@ -200,6 +202,12 @@ beforeAll(async () => {
   mock.module("@/context/presence", () => ({
     usePresence: () => ({
       localPeer: () => null,
+      localPeerFallback: () => ({ id: "peer_1", name: "Alice", color: "#FF6B6B", connectedAt: 0, isTyping: false }),
+      peers: () => [{ id: "peer_2", name: "Bob", color: "#4ECDC4", connectedAt: 0, isTyping: false }],
+      mentionPeers: () => [{ id: "peer_2", name: "Bob", color: "#4ECDC4", connectedAt: 0, isTyping: false }],
+      sendMention: (peerID: string, text: string, messageID?: string) => {
+        sentMentions.push({ peerID, text, messageID })
+      },
     }),
   }))
 
@@ -216,6 +224,7 @@ beforeEach(() => {
   promoted.length = 0
   params = {}
   sentShell.length = 0
+  sentMentions.length = 0
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
@@ -351,5 +360,39 @@ describe("prompt submit worktree selection", () => {
 
     expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
     expect(optimisticSeeded).toEqual([true])
+  })
+
+  test("sends peer mention notifications after prompt submit", async () => {
+    params = { id: "session-1" }
+    const next: Prompt = [
+      { type: "text", content: "ping ", start: 0, end: 5 },
+      { type: "peer", id: "peer_2", name: "Bob", content: "@Bob", start: 5, end: 9 },
+    ]
+    promptValue.splice(0, promptValue.length, ...next)
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      sendMode: () => "agent",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(sentMentions).toHaveLength(1)
+    expect(sentMentions[0]?.peerID).toBe("peer_2")
+    expect(sentMentions[0]?.text).toBe("ping @Bob")
   })
 })

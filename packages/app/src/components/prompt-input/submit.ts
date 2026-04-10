@@ -13,11 +13,11 @@ import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
-import { usePresence } from "@/context/presence"
+import { usePresence, type PeerInfo as PresencePeer } from "@/context/presence"
 import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { buildRequestParts, type PeerInfo } from "./build-request-parts"
+import { buildMentions, buildRequestParts, type MentionInfo, type PeerInfo } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
 
@@ -48,6 +48,8 @@ type FollowupSendInput = {
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
   peer?: PeerInfo
+  peers?: PeerInfo[]
+  mention?: (mentions: MentionInfo[], text: string, messageID: string) => void
 }
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
@@ -118,7 +120,9 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     sessionDirectory: input.draft.sessionDirectory,
     sendMode: input.draft.noReply ? "chat" : "agent",
     peer: input.peer,
+    peers: input.peers,
   })
+  const mentions = buildMentions(input.draft.prompt, input.peers ?? []).filter((item) => item.id !== input.peer?.id)
 
   const message: Message = {
     id: messageID,
@@ -167,6 +171,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       variant: input.draft.variant,
       noReply: input.draft.noReply,
     })
+    input.mention?.(mentions, text, messageID)
     if (input.draft.noReply) {
       setIdle()
     }
@@ -224,6 +229,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const language = useLanguage()
   const params = useParams()
   const presence = usePresence()
+  const peers = () =>
+    [presence.localPeerFallback(), ...presence.mentionPeers()].filter((peer): peer is PresencePeer => !!peer)
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -578,6 +585,15 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
       peer: presence.localPeerFallback() ?? undefined,
+      peers: peers(),
+      mention: (mentions, text, messageID) => {
+        const seen = new Set<string>()
+        for (const item of mentions) {
+          if (seen.has(item.id)) continue
+          seen.add(item.id)
+          presence.sendMention(item.id, text, messageID)
+        }
+      },
     }).catch((err) => {
       pending.delete(session.id)
       if (sessionDirectory === projectDirectory) {

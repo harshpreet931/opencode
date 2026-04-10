@@ -1,5 +1,5 @@
 import type { AgentPart as MessageAgentPart, FilePart, Part, TextPart } from "@opencode-ai/sdk/v2"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, PeerPart, Prompt } from "@/context/prompt"
 
 type Inline =
   | {
@@ -20,6 +20,14 @@ type Inline =
       start: number
       end: number
       value: string
+      name: string
+    }
+  | {
+      type: "peer"
+      start: number
+      end: number
+      value: string
+      id: string
       name: string
     }
 
@@ -124,6 +132,30 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
         name: agentPart.name,
       })
     }
+
+    if (part.type === "text") {
+      const textPart = part as TextPart
+      const mentions = textPart.metadata?.mentions
+      if (!Array.isArray(mentions)) continue
+      for (const item of mentions) {
+        if (!item || typeof item !== "object") continue
+        const id = "id" in item ? item.id : undefined
+        const name = "name" in item ? item.name : undefined
+        const start = "start" in item ? item.start : undefined
+        const end = "end" in item ? item.end : undefined
+        const value = "value" in item ? item.value : undefined
+        if (
+          typeof id !== "string" ||
+          typeof name !== "string" ||
+          typeof start !== "number" ||
+          typeof end !== "number" ||
+          typeof value !== "string"
+        ) {
+          continue
+        }
+        inline.push({ type: "peer", id, name, start, end, value })
+      }
+    }
   }
 
   inline.sort((a, b) => {
@@ -173,6 +205,20 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     position += content.length
   }
 
+  const pushPeer = (item: Extract<Inline, { type: "peer" }>) => {
+    const content = item.value
+    const mention: PeerPart = {
+      type: "peer",
+      id: item.id,
+      name: item.name,
+      content,
+      start: position,
+      end: position + content.length,
+    }
+    result.push(mention)
+    position += content.length
+  }
+
   for (const item of inline) {
     if (item.start < 0 || item.end < item.start) continue
 
@@ -188,6 +234,7 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
 
     if (item.type === "file") pushFile(item)
     if (item.type === "agent") pushAgent(item)
+    if (item.type === "peer") pushPeer(item)
 
     cursor = end
   }

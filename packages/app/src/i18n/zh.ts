@@ -487,6 +487,8 @@ export const dict = {
   "notification.permission.description": "{{sessionTitle}}（{{projectName}}）需要权限",
   "notification.question.title": "问题",
   "notification.question.description": "{{sessionTitle}}（{{projectName}}）有一个问题",
+  "notification.mention.title": "{{name}} 提到了你",
+  "notification.mention.description": "{{text}}",
   "notification.action.goToSession": "前往会话",
   "notification.session.responseReady.title": "回复已就绪",
   "notification.session.error.title": "会话错误",
@@ -569,6 +571,8 @@ export const dict = {
   "lsp.label.connected": "{{count}} LSP",
 
   "prompt.loading": "正在加载提示...",
+  "prompt.popover.you": "你",
+  "prompt.popover.otherSession": "其他会话",
 
   "terminal.loading": "正在加载终端...",
   "terminal.title": "终端",

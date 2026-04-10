@@ -40,7 +40,7 @@ import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
-import { usePresence } from "@/context/presence"
+import { usePresence, type PeerInfo as PresencePeer } from "@/context/presence"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
@@ -1636,6 +1636,17 @@ export default function Page() {
         draft: item,
         optimisticBusy: item.sessionDirectory === sdk.directory,
         peer: presence.localPeerFallback() ?? undefined,
+        peers: [presence.localPeerFallback(), ...presence.mentionPeers()].filter(
+          (peer): peer is PresencePeer => !!peer,
+        ),
+        mention: (mentions, text, messageID) => {
+          const seen = new Set<string>()
+          for (const item of mentions) {
+            if (seen.has(item.id)) continue
+            seen.add(item.id)
+            presence.sendMention(item.id, text, messageID)
+          }
+        },
       }).catch((err) => {
         setFollowup("failed", input.sessionID, input.id)
         fail(err)
@@ -1670,6 +1681,7 @@ export default function Page() {
         if (part.type === "image") return `[image:${part.filename}]`
         if (part.type === "file") return `[file:${part.path}]`
         if (part.type === "agent") return `@${part.name}`
+        if (part.type === "peer") return `@${part.name}`
         return part.content
       })
       .join("")

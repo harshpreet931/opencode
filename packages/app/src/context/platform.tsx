@@ -35,7 +35,7 @@ export type Platform = {
   forward(): void
 
   /** Send a system notification (optional deep link) */
-  notify(title: string, description?: string, href?: string): Promise<void>
+  notify(title: string, description?: string, href?: string, opts?: { force?: boolean }): Promise<void>
 
   /** Open directory picker dialog (native on Tauri, server-backed on web) */
   openDirectoryPickerDialog?(opts?: OpenDirectoryPickerOptions): Promise<PickerPaths>

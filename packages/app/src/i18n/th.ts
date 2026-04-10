@@ -483,6 +483,8 @@ export const dict = {
   "notification.permission.description": "{{sessionTitle}} ใน {{projectName}} ต้องการสิทธิ์",
   "notification.question.title": "คำถาม",
   "notification.question.description": "{{sessionTitle}} ใน {{projectName}} มีคำถาม",
+  "notification.mention.title": "{{name}} กล่าวถึงคุณ",
+  "notification.mention.description": "{{text}}",
   "notification.action.goToSession": "ไปที่เซสชัน",
 
   "notification.session.responseReady.title": "การตอบสนองพร้อม",
@@ -571,6 +573,8 @@ export const dict = {
   "lsp.label.connected": "{{count}} LSP",
 
   "prompt.loading": "กำลังโหลดพร้อมท์...",
+  "prompt.popover.you": "คุณ",
+  "prompt.popover.otherSession": "อีกเซสชัน",
   "terminal.loading": "กำลังโหลดเทอร์มินัล...",
   "terminal.title": "เทอร์มินัล",
   "terminal.title.numbered": "เทอร์มินัล {{number}}",

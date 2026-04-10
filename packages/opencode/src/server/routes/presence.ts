@@ -39,6 +39,13 @@ const ClientMessage = z.discriminatedUnion("type", [
     color: z.string().optional(),
   }),
   z.object({
+    type: z.literal("mention"),
+    peerID: z.string(),
+    text: z.string().min(1),
+    messageID: z.string().optional(),
+    sessionID: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("ping"),
   }),
 ])
@@ -52,6 +59,14 @@ type ServerMessage =
   | { type: "peer.typing"; peerID: string; isTyping: boolean }
   | { type: "peer.mouse"; peerID: string; x: number; y: number }
   | { type: "peer.name"; peerID: string; name: string; color?: string }
+  | {
+      type: "peer.mention"
+      peerID: string
+      from: Presence.PeerInfo
+      text: string
+      messageID?: string
+      sessionID?: string
+    }
   | { type: "pong" }
 
 function sendJSON(
@@ -92,6 +107,9 @@ export function PresenceRoutes(upgradeWebSocket: UpgradeWebSocket) {
       const name = c.req.query("name") || undefined
       const color = c.req.query("color") || undefined
       const browser = c.req.query("browser") || undefined
+      const directory = c.req.query("directory") || undefined
+      const scope = c.req.query("scope")
+      const kind = scope === "directory" || scope === "global" || scope === "session" ? scope : undefined
 
       type Socket = {
         readyState: number
@@ -118,7 +136,7 @@ export function PresenceRoutes(upgradeWebSocket: UpgradeWebSocket) {
             return
           }
 
-          conn = Presence.join(sessionID, socket, { name, color, browser })
+          conn = Presence.join(sessionID, socket, { name, color, browser, scope: kind, directory })
           peerID = conn.info.id
 
           // Send welcome with current peer list
@@ -235,6 +253,32 @@ export function PresenceRoutes(upgradeWebSocket: UpgradeWebSocket) {
                   color: msg.color,
                 } satisfies ServerMessage),
               )
+              break
+            }
+
+            case "mention": {
+              const from = Presence.getPeer(sessionID, peerID)
+              const to = Presence.getPeer(sessionID, msg.peerID)
+              if (!from || !to) break
+              Presence.send(
+                sessionID,
+                msg.peerID,
+                JSON.stringify({
+                  type: "peer.mention",
+                  peerID: msg.peerID,
+                  from,
+                  text: msg.text,
+                  messageID: msg.messageID,
+                  sessionID: msg.sessionID,
+                } satisfies ServerMessage),
+              )
+              void Bus.publish(Presence.Event.PeerMentioned, {
+                sessionID,
+                from,
+                to,
+                text: msg.text,
+                messageID: msg.messageID,
+              })
               break
             }
 

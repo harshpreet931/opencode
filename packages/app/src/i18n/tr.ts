@@ -492,6 +492,8 @@ export const dict = {
   "notification.permission.description": "{{projectName}} içindeki {{sessionTitle}} izin gerektiriyor",
   "notification.question.title": "Soru",
   "notification.question.description": "{{projectName}} içindeki {{sessionTitle}} bir soru soruyor",
+  "notification.mention.title": "{{name}} senden bahsetti",
+  "notification.mention.description": "{{text}}",
   "notification.action.goToSession": "Oturuma git",
 
   "notification.session.responseReady.title": "Yanıt hazır",
@@ -582,6 +584,8 @@ export const dict = {
   "lsp.label.connected": "{{count}} LSP",
 
   "prompt.loading": "Komut yükleniyor...",
+  "prompt.popover.you": "sen",
+  "prompt.popover.otherSession": "diğer oturum",
   "terminal.loading": "Terminal yükleniyor...",
   "terminal.title": "Terminal",
   "terminal.title.numbered": "Terminal {{number}}",

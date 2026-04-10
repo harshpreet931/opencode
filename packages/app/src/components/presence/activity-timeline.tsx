@@ -21,6 +21,8 @@ function activityLabel(evt: ActivityEvent): string {
       return `${name} opened ${evt.data?.file}`
     case "message":
       return `${name} sent a message`
+    case "mention":
+      return `${name} mentioned you`
     default:
       return `${name} was active`
   }
@@ -40,6 +42,8 @@ function activityIcon(type: ActivityType): string {
       return "📄"
     case "message":
       return "💬"
+    case "mention":
+      return "@"
     default:
       return "•"
   }
